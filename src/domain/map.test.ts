@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
   alphabetName,
+  applyGroupNaming,
+  connectedStationIds,
   deleteLineGroup,
+  fallbackStationName,
   generatedLineName,
   initialMap,
+  insertStationByProximity,
+  isConnectionDeleted,
+  isWaypoint,
+  lineConnects,
+  lineComponents,
+  lineConnectionPairs,
+  lineNameOrder,
+  mergeManualInterchange,
   moveLineToGroup,
   normalizeMap,
+  removeEmptyUnassigned,
 } from './map'
 import type { LineGroup, MetroMap } from './types'
 
@@ -62,5 +74,72 @@ describe('map domain helpers', () => {
     const next = moveLineToGroup(map, 'l1', 'g-1')
 
     expect(next.lines.find((line) => line.id === 'l1')?.name).toBe('Line 4')
+  })
+
+  it('regenerates only non-overridden names when group naming changes', () => {
+    const map = structuredClone(initialMap)
+    map.lines = [
+      { ...map.lines[0], name: 'Line 1', nameOverridden: false },
+      { ...map.lines[1], name: 'Custom route', nameOverridden: true },
+    ]
+
+    const next = applyGroupNaming(map, 'g-metro', { namingPattern: 'numbered', namingPrefix: 'M' })
+
+    expect(next.lines[0].name).toBe('M1')
+    expect(next.lines[1].name).toBe('Custom route')
+  })
+
+  it('regenerates non-overridden names when moving to numbered groups', () => {
+    const map = structuredClone(initialMap)
+    map.lines[0] = { ...map.lines[0], name: 'Line 4', nameOverridden: false }
+    map.lineGroups = [
+      ...map.lineGroups!,
+      { id: 'g-numbered', name: 'Numbered', style: 'solid', namingPattern: 'numbered', lineIds: [] },
+    ]
+
+    const next = moveLineToGroup(map, 'l1', 'g-numbered')
+
+    expect(next.lines.find((line) => line.id === 'l1')?.name).toBe('1')
+  })
+
+  it('handles loops and deleted line components', () => {
+    const line = { ...initialMap.lines[0], loop: true, deletedConnections: ['s1|s2'] }
+    expect(lineConnectionPairs(line)).toHaveLength(3)
+    expect(lineComponents(line)).toEqual([[1, 2]])
+  })
+
+  it('orders numbered and alphabetic line names naturally', () => {
+    const numbered = { id: 'g', name: 'G', style: 'solid' as const, namingPattern: 'numbered' as const, lineIds: [] }
+    const alphabetic = { ...numbered, namingPattern: 'alphabet' as const }
+    expect(lineNameOrder({ ...initialMap.lines[0], name: 'M12' }, { ...numbered, namingPrefix: 'M' })).toBe(12)
+    expect(lineNameOrder({ ...initialMap.lines[0], name: 'AB' }, alphabetic)).toBe(28)
+  })
+
+  it('inserts a station into the nearest segment and merges manual interchanges', () => {
+    const stations = new Map(initialMap.stations.map((station) => [station.id, station]))
+    stations.set('new', { ...initialMap.stations[0], id: 'new', x: 380, y: 260 })
+    expect(insertStationByProximity(initialMap.lines[0], 'new', stations)).toEqual(['s1', 'new', 's2', 's3'])
+    expect(mergeManualInterchange([['s1', 's2'], ['s3']], 's2', 's3')).toEqual([['s1', 's2', 's3']])
+  })
+
+  it('checks line connectivity and deleted connections', () => {
+    const line = { ...initialMap.lines[0], deletedConnections: ['s1|s2'] }
+    expect(isConnectionDeleted(line, 's2', 's1')).toBe(true)
+    expect(lineConnects(line, 's1', 's2')).toBe(false)
+    expect(lineConnects(line, 's2', 's3')).toBe(true)
+    expect(connectedStationIds(line)).toEqual(new Set(['s2', 's3']))
+  })
+
+  it('handles waypoint and fallback station names', () => {
+    const waypoint = { ...initialMap.stations[0], id: 'w-1', ghost: undefined }
+    expect(isWaypoint(waypoint)).toBe(true)
+    expect(fallbackStationName(initialMap, initialMap.stations[0])).toBe('Station 1')
+    expect(fallbackStationName({ ...initialMap, stations: [waypoint] }, { ...waypoint, ghost: true })).toBe('')
+  })
+
+  it('removes empty ephemeral groups and handles missing insertion stations', () => {
+    const map = { ...initialMap, lineGroups: [{ id: 'g-unassigned', name: 'Unassigned', style: 'solid' as const, namingPattern: 'simple' as const, lineIds: [], ephemeral: true }] }
+    expect(removeEmptyUnassigned(map).lineGroups).toEqual([])
+    expect(insertStationByProximity(initialMap.lines[0], 'missing', new Map())).toEqual(['s1', 's2', 's3', 'missing'])
   })
 })
