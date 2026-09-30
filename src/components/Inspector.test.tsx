@@ -36,22 +36,45 @@ function renderInspector(overrides: Partial<Parameters<typeof Inspector>[0]> = {
     onSelectLine: vi.fn(),
     onSelectPlacementLine: vi.fn(),
     onLineNameEnter: vi.fn(),
-    stationNameInputRef: createRef<HTMLInputElement>(),
-    lineNameInputRef: createRef<HTMLInputElement>(),
+    stationNameInputRef: createRef<HTMLTextAreaElement>(),
+    lineNameInputRef: createRef<HTMLTextAreaElement>(),
     groupNameInputRef: createRef<HTMLInputElement>(),
     stationLineSelectRef: createRef<HTMLInputElement>(),
     lineGroupSelectRef: createRef<HTMLButtonElement>(),
     lineStyleSelectRef: createRef<HTMLButtonElement>(),
     ...overrides,
   }
-  render(<Inspector {...props} />)
-  return { getMap: () => currentMap, updateMap, props }
+  const view = render(<Inspector {...props} />)
+  return { ...view, getMap: () => currentMap, updateMap, props }
 }
 
 describe('Inspector', () => {
   it('renders the empty state when nothing is selected', () => {
     renderInspector()
     expect(screen.getByText('Select a station or line to edit its properties.')).toBeInTheDocument()
+  })
+
+  it('hides stored newlines in station and line editor values', () => {
+    const station = { ...initialMap.stations[0], name: 'Central\nStation' }
+    const line = { ...initialMap.lines[0], name: 'Blue\nLine' }
+    const stationView = renderInspector({ station })
+    expect(screen.getByRole('textbox')).toHaveValue('Central Station')
+    stationView.unmount()
+    renderInspector({ line })
+    expect(screen.getByRole('textbox')).toHaveValue('Blue Line')
+  })
+
+  it('preserves a station newline when visible text is edited', () => {
+    const station = { ...initialMap.stations[0], name: 'Central\nStation' }
+    const { getMap, updateMap } = renderInspector({ station })
+    updateMap((map) => ({
+      ...map,
+      stations: map.stations.map((item) => item.id === station.id ? station : item),
+    }))
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Central XStation' } })
+
+    expect(getMap().stations.find((item) => item.id === station.id)?.name).toBe('Central\nXStation')
   })
 
   it('edits station details and station actions', () => {
@@ -85,6 +108,19 @@ describe('Inspector', () => {
     expect(getMap().manualInterchanges).toEqual([])
   })
 
+  it('inserts a newline into a station name with Shift+Enter', () => {
+    const station = { ...initialMap.stations[0], name: 'Central Harbor' }
+    const { getMap } = renderInspector({ station })
+    const name = screen.getByRole('textbox')
+    Object.defineProperty(name, 'value', { configurable: true, value: 'Central Harbor' })
+    Object.defineProperty(name, 'selectionStart', { configurable: true, value: 14 })
+    Object.defineProperty(name, 'selectionEnd', { configurable: true, value: 14 })
+
+    fireEvent.keyDown(name, { key: 'Enter', shiftKey: true })
+
+    expect(getMap().stations.find((item) => item.id === station.id)?.name).toBe('Central Harbor\n')
+  })
+
   it('marks edited line names and styles as overridden', () => {
     const line = initialMap.lines[0]
     const { getMap } = renderInspector({ line })
@@ -98,6 +134,22 @@ describe('Inspector', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Loop line' }))
     expect(getMap().lines.find((item) => item.id === line.id)?.loop).toBe(true)
+  })
+
+  it('inserts a newline into a line name with Shift+Enter', () => {
+    const line = { ...initialMap.lines[0], name: 'Blue Express' }
+    const { getMap } = renderInspector({ line })
+    const name = screen.getByRole('textbox')
+    Object.defineProperty(name, 'value', { configurable: true, value: 'Blue Express' })
+    Object.defineProperty(name, 'selectionStart', { configurable: true, value: 12 })
+    Object.defineProperty(name, 'selectionEnd', { configurable: true, value: 12 })
+
+    fireEvent.keyDown(name, { key: 'Enter', shiftKey: true })
+
+    expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({
+      name: 'Blue Express\n',
+      nameOverridden: true,
+    })
   })
 
   it('edits group naming and propagates the selected default style', () => {

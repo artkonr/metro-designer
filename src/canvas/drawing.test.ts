@@ -47,6 +47,18 @@ describe('drawing helpers', () => {
     expect(labels.find((label) => label.key === 'l:a')?.center).toEqual({ x: 75, y: 106 })
   })
 
+  it('sizes multiline endpoint labels to their widest line and total height', () => {
+    const map: MetroMap = {
+      ...initialMap,
+      stations: initialMap.stations.slice(0, 2),
+      lines: [{ ...initialMap.lines[0], name: 'A\nLonger name', stationIds: ['s1', 's2'] }],
+    }
+    const stations = new Map(map.stations.map((station) => [station.id, station]))
+    const label = getLineEndpointLabels(map, stations).find((item) => item.key === 'l1:s1')
+
+    expect(label).toMatchObject({ width: 'Longer name'.length * 6.5 + 12, height: 34 })
+  })
+
   it('handles loop endpoints and deleted line components', () => {
     const map = {
       ...initialMap,
@@ -102,5 +114,25 @@ describe('drawing helpers', () => {
     expect(ctx.setLineDash).toHaveBeenCalled()
     expect(ctx.fillText).toHaveBeenCalled()
     expect(ctx.stroke).toHaveBeenCalled()
+  })
+
+  it('renders newline-separated station labels as separate lines', () => {
+    const ctx = {
+      setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), save: vi.fn(), translate: vi.fn(),
+      scale: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
+      stroke: vi.fn(), fill: vi.fn(), arc: vi.fn(), roundRect: vi.fn(), rotate: vi.fn(),
+      setLineDash: vi.fn(), strokeRect: vi.fn(), fillText: vi.fn(), measureText: vi.fn(() => ({ width: 30 })),
+    } as unknown as CanvasRenderingContext2D
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx)
+    const map = {
+      ...initialMap,
+      stations: [{ ...initialMap.stations[0], name: 'Central\nStation' }],
+      lines: [],
+    }
+
+    drawMap(document.createElement('canvas'), map, new Set(), [], [], null, null, false, 0, { x: 0, y: 0, scale: 1 }, null)
+
+    expect(ctx.fillText).toHaveBeenCalledWith('Central', expect.any(Number), expect.any(Number))
+    expect(ctx.fillText).toHaveBeenCalledWith('Station', expect.any(Number), expect.any(Number))
   })
 })
