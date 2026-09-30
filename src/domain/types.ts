@@ -32,6 +32,7 @@ export type Station = {
   labelAngle?: number
   hideLabel?: boolean
   icon: StationIcon
+  icons?: StationIcon[]
 }
 
 export type MetroLine = {

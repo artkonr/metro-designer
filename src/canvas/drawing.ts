@@ -1,7 +1,11 @@
 import { GRID_SIZE, WORKSPACE } from '../domain/constants'
-import { isConnectionDeleted, lineComponents, lineConnectionPairs } from '../domain/map'
+import { isConnectionDeleted, lineComponents, lineConnectionPairs, stationIcons } from '../domain/map'
 import type { FrameSelection, LineEndpointLabel, LineStyle, MetroLine, MetroMap, Point, SelectedConnection, Station, StationIcon, Viewport } from '../domain/types'
 import { pointKey, stationLabelOffset } from './geometry'
+import { MODALITY_ICON_URLS } from '../assets/modalityIcons'
+
+const modalityImages = new Map<StationIcon, HTMLImageElement>()
+const ICON_COLUMN_STEP = 20
 
 export function drawMap(
   canvas: HTMLCanvasElement | null,
@@ -129,33 +133,58 @@ export function drawMap(
       ctx.textAlign = labelAngle === 90 ? 'left' : labelAngle === 270 ? 'right' : 'center'
       ctx.fillText(`· ${station.name}`, labelX, labelY)
     } else {
-      const icon = iconGlyph(station.icon)
+      const icons = stationIcons(station)
       const nameLines = station.name.split('\n')
       const nameWidth = Math.max(...nameLines.map((name) => ctx.measureText(name).width))
-      const hasCustomRailIcon = station.icon === 'train'
-      const hasCustomBusIcon = station.icon === 'bus'
-      if (!icon && !hasCustomRailIcon && !hasCustomBusIcon) {
+      if (!icons.length) {
         ctx.textAlign = labelAngle === 90 ? 'left' : labelAngle === 270 ? 'right' : 'center'
         nameLines.forEach((name, index) => {
           ctx.fillText(name, labelX, labelY + (index - (nameLines.length - 1) / 2) * 16)
         })
       } else {
         ctx.font = '18px Inter, system-ui, sans-serif'
-        const iconWidth = hasCustomRailIcon || hasCustomBusIcon ? 18 : ctx.measureText(icon).width
-        const totalWidth = iconWidth + 4 + nameWidth
+        const iconLayout = stationIconLayout(icons.length)
+        const totalWidth = iconLayout.width + 4 + nameWidth
         ctx.textAlign = 'left'
         const left = labelAngle === 90 ? labelX : labelAngle === 270 ? labelX - totalWidth : labelX - totalWidth / 2
-        if (hasCustomRailIcon) drawRailIcon(ctx, left, labelY)
-        else if (hasCustomBusIcon) drawBusIcon(ctx, left, labelY)
-        else ctx.fillText(icon, left, labelY)
+        icons.forEach((icon, index) => {
+          const column = iconLayout.columns - 1 - Math.floor(index / 2)
+          const row = index % 2
+          const iconX = left + column * ICON_COLUMN_STEP
+          const iconY = labelY - iconLayout.height / 2 + row * 20
+          drawModalityIcon(ctx, icon, iconX, iconY, () => drawMap(
+            canvas,
+            map,
+            interchangeIds,
+            route,
+            selectedStationIds,
+            selectedLineId,
+            selectedConnection,
+            snapToGrid,
+            shimmerPhase,
+            viewport,
+            frameSelection,
+            size,
+          ))
+        })
         ctx.font = '600 14px Inter, system-ui, sans-serif'
         nameLines.forEach((name, index) => {
-          ctx.fillText(name, left + iconWidth + 4, labelY + (index - (nameLines.length - 1) / 2) * 16)
+          ctx.fillText(name, left + iconLayout.width + 4, labelY + (index - (nameLines.length - 1) / 2) * 16)
         })
       }
     }
+
   })
   ctx.restore()
+}
+
+export function stationIconLayout(count: number) {
+  const columns = Math.max(1, Math.ceil(count / 2))
+  return {
+    columns,
+    width: 18 + (columns - 1) * ICON_COLUMN_STEP,
+    height: count > 1 ? 38 : 18,
+  }
 }
 
 export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Station>): LineEndpointLabel[] {
@@ -411,6 +440,23 @@ function drawShimmer(ctx: CanvasRenderingContext2D, start: Point, end: Point, ph
     ctx.stroke()
   })
   ctx.restore()
+}
+
+function drawModalityIcon(
+  ctx: CanvasRenderingContext2D,
+  icon: StationIcon,
+  x: number,
+  y: number,
+  redraw: () => void,
+) {
+  if (icon === 'none') return
+  const image = modalityImages.get(icon) ?? new Image()
+  if (!modalityImages.has(icon)) {
+    modalityImages.set(icon, image)
+    image.onload = redraw
+    image.src = MODALITY_ICON_URLS[icon]
+  }
+  if (image.complete && image.naturalWidth > 0) ctx.drawImage(image, x, y, 18, 18)
 }
 
 function drawBusIcon(ctx: CanvasRenderingContext2D, x: number, y: number) {

@@ -110,10 +110,10 @@ kbd { display: inline-block; padding: 3px 5px; border: 1px solid #d8e0e7; border
 .station-style-tools .tool { width: 32px; height: 30px; }
 .station-icon-field { margin-top: 13px; }
 .station-icon-tools .tool { width: 32px; height: 30px; }
-.station-icon-glyph { color: #85919d; font-size: 17px; line-height: 1; }
+.station-icon-glyph { display: grid; place-items: center; width: 18px; height: 18px; color: #85919d; line-height: 1; }
+.station-icon-glyph img { display: block; width: 18px; height: 18px; filter: invert(55%) sepia(8%) saturate(450%) hue-rotate(165deg) brightness(88%); }
+.station-icon-tools .tool.active .station-icon-glyph img { filter: invert(34%) sepia(63%) saturate(1076%) hue-rotate(309deg) brightness(92%); }
 .station-icon-tools .tool.active .station-icon-glyph { color: #d84f5a; }
-.station-icon-glyph.train { position: relative; width: 16px; height: 16px; background: repeating-linear-gradient(0deg, transparent 0 3px, currentColor 3px 4px, transparent 4px 5px), linear-gradient(90deg, transparent 0 3px, currentColor 3px 4px, transparent 4px 12px, currentColor 12px 13px, transparent 13px); }
-.station-icon-glyph.bus { position: relative; width: 16px; height: 13px; border: 1.4px solid currentColor; border-radius: 3px; background: linear-gradient(currentColor, currentColor) 0 7px / 100% 1px no-repeat, radial-gradient(circle at 3px 11px, currentColor 0 1.5px, transparent 1.6px), radial-gradient(circle at 13px 11px, currentColor 0 1.5px, transparent 1.6px), #fff; }
 .manual-interchange-tool { display: flex; flex: 1; align-items: center; justify-content: center; gap: 7px; height: 30px; margin-left: 12px; border: 1px solid rgba(100, 116, 139, 0.55); border-radius: 6px; color: #53616f; background: rgba(148, 163, 184, 0.16); font-size: 10px; }
 .manual-interchange-tool span:first-child { color: #53616f; font-size: 18px; line-height: 1; }
 .manual-interchange-tool.active { border-color: rgba(71, 85, 105, 0.75); background: rgba(148, 163, 184, 0.28); }
