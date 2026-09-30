@@ -1,12 +1,13 @@
 import type { RefObject } from 'react'
 
-import { iconGlyph, readableText } from '../canvas/drawing'
+import { readableText } from '../canvas/drawing'
 import { labelOffsetForAngle } from '../canvas/geometry'
 import { COLOR_PRESETS, LABEL_ANGLES } from '../domain/constants'
-import { applyGroupNaming, fallbackStationName, generatedLineName, isWaypoint, moveLineToGroup, removeEmptyUnassigned } from '../domain/map'
+import { applyGroupNaming, fallbackStationName, generatedLineName, isWaypoint, moveLineToGroup, removeEmptyUnassigned, stationIcons } from '../domain/map'
 import type { LineGroup, LineNamingPattern, LineStyle, MetroLine, MetroMap, SelectedConnection, Station } from '../domain/types'
 import { LineSearchDropdown } from './LineSearchDropdown'
 import { StyledDropdown } from './StyledDropdown'
+import { MODALITY_ICON_URLS } from '../assets/modalityIcons'
 
 type InspectorProps = {
   station?: Station
@@ -218,21 +219,28 @@ export function Inspector({
           </div>
           <div className="field station-icon-field">
             <label>Modalities</label>
-            <div className="tool-grid station-icon-tools" role="radiogroup" aria-label="Station modalities">
+            <div className="tool-grid station-icon-tools" role="group" aria-label="Station modalities">
               {([['plane', 'Airport'], ['train', 'Rail station'], ['bus', 'Intercity bus'], ['ship', 'Passenger port']] as const).map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
-                  className={station.icon === value ? 'tool active tooltip-button' : 'tool tooltip-button'}
+                  className={stationIcons(station).includes(value) ? 'tool active tooltip-button' : 'tool tooltip-button'}
                   aria-label={label}
                   data-tooltip={label}
-                  aria-pressed={station.icon === value}
+                  aria-pressed={stationIcons(station).includes(value)}
                   onClick={() => updateMap((map) => ({
                     ...map,
-                    stations: map.stations.map((item) => item.id === station.id ? { ...item, icon: item.icon === value ? 'none' : value } : item),
+                    stations: map.stations.map((item) => {
+                      if (item.id !== station.id) return item
+                      const icons = stationIcons(item)
+                      const nextIcons = icons.includes(value) ? icons.filter((icon) => icon !== value) : [...icons, value]
+                      return { ...item, icons: nextIcons, icon: nextIcons.at(-1) ?? 'none' }
+                    }),
                   }))}
                 >
-                  <span className={`station-icon-glyph ${value}`}>{value === 'plane' || value === 'ship' ? iconGlyph(value) : null}</span>
+                  <span className={`station-icon-glyph ${value}`}>
+                    <img src={MODALITY_ICON_URLS[value]} alt="" />
+                  </span>
                 </button>
               ))}
             </div>

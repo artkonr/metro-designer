@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { initialMap } from '../domain/map'
-import type { MetroMap } from '../domain/types'
-import { drawMap, getLineEndpointLabels, iconGlyph, canonicalColor, lineOutlineStyle, readableText } from './drawing'
+import type { MetroMap, StationIcon } from '../domain/types'
+import { drawMap, getLineEndpointLabels, iconGlyph, canonicalColor, lineOutlineStyle, readableText, stationIconLayout } from './drawing'
 
 describe('drawing helpers', () => {
   it('maps station icons and line styles to rendering values', () => {
@@ -77,6 +77,13 @@ describe('drawing helpers', () => {
     expect(() => drawMap(null, initialMap, new Set(), [], [], null, null, false, 0, { x: 0, y: 0, scale: 1 }, null)).not.toThrow()
   })
 
+  it('lays modality icons out in two-row stacks from right to left', () => {
+    expect(stationIconLayout(1)).toEqual({ columns: 1, width: 18, height: 18 })
+    expect(stationIconLayout(2)).toEqual({ columns: 1, width: 18, height: 38 })
+    expect(stationIconLayout(4)).toEqual({ columns: 2, width: 38, height: 38 })
+    expect(stationIconLayout(5)).toEqual({ columns: 3, width: 58, height: 38 })
+  })
+
   it('draws grid, routes, selections, labels, and line styles', () => {
     const ctx = {
       setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), save: vi.fn(), translate: vi.fn(),
@@ -87,7 +94,11 @@ describe('drawing helpers', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx)
     const map = {
       ...initialMap,
-      stations: [...initialMap.stations, { id: 'w-1', name: '', x: 380, y: 260, labelOffset: { x: 0, y: -30 }, icon: 'none' as const, ghost: true }],
+      stations: [
+        { ...initialMap.stations[0], icons: ['plane', 'train', 'bus', 'ship'] as StationIcon[] },
+        ...initialMap.stations.slice(1),
+        { id: 'w-1', name: '', x: 380, y: 260, labelOffset: { x: 0, y: -30 }, icon: 'none' as const, ghost: true },
+      ],
       lines: [
         ...initialMap.lines,
         { id: 'l3', name: 'Dotted', color: '#f00', style: 'dotted' as const, stationIds: ['s2', 's4'] },

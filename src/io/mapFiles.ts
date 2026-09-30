@@ -1,9 +1,9 @@
 import yaml from 'js-yaml'
 
-import { drawMap, getLineEndpointLabels } from '../canvas/drawing'
+import { drawMap, getLineEndpointLabels, stationIconLayout } from '../canvas/drawing'
 import { stationLabelOffset } from '../canvas/geometry'
 import { WORKSPACE } from '../domain/constants'
-import { normalizeMap } from '../domain/map'
+import { normalizeMap, stationIcons } from '../domain/map'
 import type { MetroMap, SelectedConnection, Station } from '../domain/types'
 
 export async function parseMapFile(file: File): Promise<MetroMap> {
@@ -60,10 +60,15 @@ export function exportMapPng({
     const measureContext = exportCanvas.getContext('2d')
     if (!measureContext) return
     measureContext.font = '600 14px Inter, system-ui, sans-serif'
-    const iconWidth = station.ghost || station.icon === 'none' ? 0 : 22
-    const width = measureContext.measureText(station.name).width + iconWidth
+    const icons = stationIcons(station)
+    const iconLayout = icons.length ? stationIconLayout(icons.length) : null
+    const nameLines = station.name.split('\n')
+    const nameWidth = Math.max(...nameLines.map((name) => measureContext.measureText(name).width))
+    const nameHeight = nameLines.length * 16
+    const width = nameWidth + (iconLayout ? iconLayout.width + 4 : 0)
+    const height = Math.max(nameHeight, iconLayout?.height ?? 0)
     const left = station.labelAngle === 90 ? labelX : station.labelAngle === 270 ? labelX - width : labelX - width / 2
-    includeRect(left, labelY - 10, left + width, labelY + 10)
+    includeRect(left, labelY - height / 2, left + width, labelY + height / 2)
   })
   ;(map.manualInterchanges ?? []).forEach((group) => {
     const groupStations = group.map((id) => stations.get(id)).filter((station): station is Station => Boolean(station))

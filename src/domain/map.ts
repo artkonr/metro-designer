@@ -33,8 +33,20 @@ export function isWaypoint(station: Station) {
   return station.ghost === true || station.id.startsWith('w-')
 }
 
+export function stationIcons(station: Station) {
+  return [...new Set([
+    ...(station.icons ?? []),
+    ...(station.icon === 'none' ? [] : [station.icon]),
+  ])]
+}
+
 export function normalizeMap(source: MetroMap): MetroMap {
-  const stations = source.stations.map((station) => isWaypoint(station) ? { ...station, ghost: true, name: '', hideLabel: true } : station)
+  const stations = source.stations.map((station) => {
+    const icons = stationIcons(station)
+    return isWaypoint(station)
+      ? { ...station, icons, ghost: true, name: '', hideLabel: true }
+      : { ...station, icons }
+  })
   const lines = source.lines.map((line) => ({ ...line, styleOverridden: line.styleOverridden ?? true, nameOverridden: line.nameOverridden ?? true }))
   const sourceGroups = source.lineGroups?.length
     ? source.lineGroups
