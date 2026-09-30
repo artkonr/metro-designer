@@ -29,8 +29,8 @@ type InspectorProps = {
   onSelectLine: (id: string | null) => void
   onSelectPlacementLine: (id: string) => void
   onLineNameEnter: () => void
-  stationNameInputRef: RefObject<HTMLInputElement | null>
-  lineNameInputRef: RefObject<HTMLInputElement | null>
+  stationNameInputRef: RefObject<HTMLTextAreaElement | null>
+  lineNameInputRef: RefObject<HTMLTextAreaElement | null>
   groupNameInputRef: RefObject<HTMLInputElement | null>
   stationLineSelectRef: RefObject<HTMLInputElement | null>
   lineGroupSelectRef: RefObject<HTMLButtonElement | null>
@@ -83,16 +83,35 @@ export function Inspector({
           {!waypoint && (
             <div className="field">
               <label>Name</label>
-              <input
+              <textarea
+                rows={1}
                 key={station.id}
                 ref={stationNameInputRef}
-                value={station.name}
+                value={flattenName(station.name)}
                 onChange={(event) => updateMap((map) => ({
                   ...map,
-                  stations: map.stations.map((item) => item.id === station.id ? { ...item, name: event.target.value } : item),
+                  stations: map.stations.map((item) => item.id === station.id
+                    ? { ...item, name: mergeVisibleName(item.name, event.target.value) }
+                    : item),
                 }))}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
+                  if (event.shiftKey) {
+                    event.preventDefault()
+                    const input = event.currentTarget
+                    const start = visibleCursorToRaw(station.name, input.selectionStart ?? input.value.length)
+                    const end = visibleCursorToRaw(station.name, input.selectionEnd ?? input.selectionStart ?? input.value.length)
+                    const name = `${station.name.slice(0, start)}\n${station.name.slice(end)}`
+                    updateMap((map) => ({
+                      ...map,
+                      stations: map.stations.map((item) => item.id === station.id ? { ...item, name } : item),
+                    }))
+                    requestAnimationFrame(() => {
+                      const position = input.selectionStart ?? input.value.length
+                      input.setSelectionRange(position, position)
+                    })
+                    return
+                  }
                   event.preventDefault()
                   event.currentTarget.blur()
                   requestAnimationFrame(() => stationLineSelectRef.current?.focus())
@@ -103,7 +122,12 @@ export function Inspector({
                     ...map,
                     stations: map.stations.map((item) => (
                       item.id === station.id
-                        ? { ...item, name: name.trim() ? name : fallbackStationName(map, item) }
+                        ? {
+                            ...item,
+                            name: flattenName(item.name) === name
+                              ? item.name
+                              : name.trim() ? mergeVisibleName(item.name, name) : fallbackStationName(map, item),
+                          }
                         : item
                     )),
                   }))
@@ -280,18 +304,37 @@ export function Inspector({
           <div className="selection-badge line-badge" style={{ background: line.color }}>LINE</div>
           <div className="field">
             <label>Name</label>
-            <input
+            <textarea
+              rows={1}
               ref={lineNameInputRef}
-              value={line.name}
+              value={flattenName(line.name)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
+                if (event.shiftKey) {
+                  event.preventDefault()
+                  const input = event.currentTarget
+                  const start = visibleCursorToRaw(line.name, input.selectionStart ?? input.value.length)
+                  const end = visibleCursorToRaw(line.name, input.selectionEnd ?? input.selectionStart ?? input.value.length)
+                  const name = `${line.name.slice(0, start)}\n${line.name.slice(end)}`
+                  updateMap((map) => ({
+                    ...map,
+                    lines: map.lines.map((item) => item.id === line.id ? { ...item, name, nameOverridden: true } : item),
+                  }))
+                  requestAnimationFrame(() => {
+                    const position = input.selectionStart ?? input.value.length
+                    input.setSelectionRange(position, position)
+                  })
+                  return
+                }
                 event.preventDefault()
                 event.currentTarget.blur()
                 onLineNameEnter()
               }}
               onChange={(event) => updateMap((map) => ({
                 ...map,
-                lines: map.lines.map((item) => item.id === line.id ? { ...item, name: event.target.value, nameOverridden: true } : item),
+                lines: map.lines.map((item) => item.id === line.id
+                  ? { ...item, name: mergeVisibleName(item.name, event.target.value), nameOverridden: true }
+                  : item),
               }))}
             />
           </div>
@@ -363,6 +406,42 @@ export function Inspector({
       )}
     </section>
   )
+}
+
+function flattenName(name: string) {
+  return name.replace(/\n/g, ' ')
+}
+
+function mergeVisibleName(previousName: string, nextVisibleName: string) {
+  const previousVisibleName = flattenName(previousName)
+  if (previousVisibleName === nextVisibleName) return previousName
+
+  let prefix = 0
+  while (
+    prefix < previousVisibleName.length
+    && prefix < nextVisibleName.length
+    && previousVisibleName[prefix] === nextVisibleName[prefix]
+  ) prefix += 1
+
+  let suffix = 0
+  while (
+    suffix < previousVisibleName.length - prefix
+    && suffix < nextVisibleName.length - prefix
+    && previousVisibleName[previousVisibleName.length - suffix - 1] === nextVisibleName[nextVisibleName.length - suffix - 1]
+  ) suffix += 1
+
+  const rawStart = visibleCursorToRaw(previousName, prefix)
+  const rawEnd = visibleCursorToRaw(previousName, previousVisibleName.length - suffix)
+  return `${previousName.slice(0, rawStart)}${nextVisibleName.slice(prefix, nextVisibleName.length - suffix)}${previousName.slice(rawEnd)}`
+}
+
+function visibleCursorToRaw(name: string, visiblePosition: number) {
+  let visible = 0
+  for (let index = 0; index < name.length; index += 1) {
+    if (visible === visiblePosition) return index
+    visible += 1
+  }
+  return name.length
 }
 
 function lineListForStation(

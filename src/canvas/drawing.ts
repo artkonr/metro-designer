@@ -130,12 +130,15 @@ export function drawMap(
       ctx.fillText(`· ${station.name}`, labelX, labelY)
     } else {
       const icon = iconGlyph(station.icon)
-      const nameWidth = ctx.measureText(station.name).width
+      const nameLines = station.name.split('\n')
+      const nameWidth = Math.max(...nameLines.map((name) => ctx.measureText(name).width))
       const hasCustomRailIcon = station.icon === 'train'
       const hasCustomBusIcon = station.icon === 'bus'
       if (!icon && !hasCustomRailIcon && !hasCustomBusIcon) {
         ctx.textAlign = labelAngle === 90 ? 'left' : labelAngle === 270 ? 'right' : 'center'
-        ctx.fillText(station.name, labelX, labelY)
+        nameLines.forEach((name, index) => {
+          ctx.fillText(name, labelX, labelY + (index - (nameLines.length - 1) / 2) * 16)
+        })
       } else {
         ctx.font = '18px Inter, system-ui, sans-serif'
         const iconWidth = hasCustomRailIcon || hasCustomBusIcon ? 18 : ctx.measureText(icon).width
@@ -146,7 +149,9 @@ export function drawMap(
         else if (hasCustomBusIcon) drawBusIcon(ctx, left, labelY)
         else ctx.fillText(icon, left, labelY)
         ctx.font = '600 14px Inter, system-ui, sans-serif'
-        ctx.fillText(station.name, left + iconWidth + 4, labelY)
+        nameLines.forEach((name, index) => {
+          ctx.fillText(name, left + iconWidth + 4, labelY + (index - (nameLines.length - 1) / 2) * 16)
+        })
       }
     }
   })
@@ -187,7 +192,8 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
     const groupOffset = map.terminusLabelOffsets?.[stationId] ?? { x: 0, y: -32 }
     const dimensions = group.map(({ line }) => {
       const label = line.name || 'Unnamed line'
-      return { label, width: measureLabelWidth(label), height: 17, color: line.color }
+      const dimensions = measureLabelDimensions(label)
+      return { label, ...dimensions, color: line.color }
     })
     const gap = 4
     const totalHeight = dimensions.reduce((sum, item) => sum + item.height, 0) + Math.max(0, dimensions.length - 1) * gap
@@ -214,14 +220,14 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
       const baseCenter = { x: endpoint.station.x + dx / length * 30, y: endpoint.station.y + dy / length * 30 }
       const offset = map.lineLabelOffsets?.[endpoint.key] ?? { x: 0, y: 0 }
       const label = endpoint.line.name || 'Unnamed line'
+      const dimensions = measureLabelDimensions(label)
       labels.push({
         key: endpoint.key,
         groupKey: endpoint.station.id,
         group: false,
         station: endpoint.station,
         label,
-        width: measureLabelWidth(label),
-        height: 17,
+        ...dimensions,
         color: endpoint.line.color,
         center: { x: baseCenter.x + offset.x, y: baseCenter.y + offset.y },
       })
@@ -280,13 +286,20 @@ function drawLineEndpointLabels(ctx: CanvasRenderingContext2D, map: MetroMap, st
     ctx.fillStyle = readableText(label.color)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(label.label, label.center.x, label.center.y)
+    const lines = label.label.split('\n')
+    lines.forEach((line, index) => {
+      ctx.fillText(line, label.center.x, label.center.y + (index - (lines.length - 1) / 2) * 12)
+    })
     ctx.restore()
   })
 }
 
-function measureLabelWidth(label: string) {
-  return label.length * 6.5 + 12
+function measureLabelDimensions(label: string) {
+  const lines = label.split('\n')
+  return {
+    width: Math.max(...lines.map((line) => line.length * 6.5 + 12)),
+    height: lines.length * 17,
+  }
 }
 
 function drawSegments(

@@ -8,8 +8,8 @@ type KeyboardShortcutOptions = {
   tool: Tool
   showHelp: boolean
   statsOpen: boolean
-  stationNameInputRef: RefObject<HTMLInputElement | null>
-  lineNameInputRef: RefObject<HTMLInputElement | null>
+  stationNameInputRef: RefObject<HTMLTextAreaElement | null>
+  lineNameInputRef: RefObject<HTMLTextAreaElement | null>
   stationLineSelectRef: RefObject<HTMLInputElement | null>
   lineGroupSelectRef: RefObject<HTMLButtonElement | null>
   onHideHelp: () => void

@@ -125,7 +125,7 @@ kbd { display: inline-block; padding: 3px 5px; border: 1px solid #d8e0e7; border
 .line-badge { width: auto; text-align: center; white-space: nowrap; }
 .field { display: grid; gap: 6px; margin-bottom: 13px; }
 .field label { color: #86929f; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.field input, .field select { width: 100%; min-height: 33px; padding: 7px 9px; color: #334250; border: 1px solid #dce4eb; border-radius: 6px; background: #fbfcfd; outline-color: #e85d65; font-size: 12px; }
+.field input, .field textarea, .field select { width: 100%; min-height: 33px; padding: 7px 9px; color: #334250; border: 1px solid #dce4eb; border-radius: 6px; background: #fbfcfd; outline-color: #e85d65; font-size: 12px; font-family: inherit; resize: vertical; }
 .styled-dropdown { position: relative; width: 100%; }
 .styled-dropdown-trigger { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 33px; padding: 7px 9px; border: 1px solid #dce4eb; border-radius: 6px; color: #334250; background: #fbfcfd; font-size: 12px; font-weight: 400; text-align: left; }
 .styled-dropdown-trigger:focus, .line-search-dropdown input:focus { border-color: #e85d65; outline: 2px solid #f8c5c8; outline-offset: 0; }
