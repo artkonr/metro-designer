@@ -94,7 +94,6 @@ describe('Inspector', () => {
     expect(getMap().stations.find((item) => item.id === 's1')?.name).toBe('Central Park')
 
     fireEvent.click(screen.getByRole('button', { name: 'Airport' }))
-    expect(getMap().stations.find((item) => item.id === 's1')?.icon).toBe('plane')
     fireEvent.click(screen.getByRole('button', { name: 'Rail station' }))
     expect(getMap().stations.find((item) => item.id === 's1')?.icons).toEqual(['plane', 'train'])
     fireEvent.click(screen.getByRole('button', { name: 'Airport' }))

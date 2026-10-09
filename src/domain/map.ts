@@ -5,10 +5,10 @@ export const initialMap: MetroMap = {
   version: 1,
   title: 'New metro map',
   stations: [
-    { id: 's1', name: 'Central', x: 280, y: 360, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icon: 'none', ghost: false },
-    { id: 's2', name: 'Museum', x: 480, y: 160, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icon: 'none', ghost: false },
-    { id: 's3', name: 'Harbor', x: 680, y: 360, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icon: 'none', ghost: false },
-    { id: 's4', name: 'University', x: 480, y: 560, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icon: 'none', ghost: false },
+    { id: 's1', name: 'Central', kind: 'station', x: 280, y: 360, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] },
+    { id: 's2', name: 'Museum', kind: 'station', x: 480, y: 160, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] },
+    { id: 's3', name: 'Harbor', kind: 'station', x: 680, y: 360, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] },
+    { id: 's4', name: 'University', kind: 'station', x: 480, y: 560, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] },
   ],
   lines: [
     { id: 'l1', name: 'Blue Line', color: COLORS[1], style: 'solid', styleOverridden: true, nameOverridden: true, groupId: 'g-metro', stationIds: ['s1', 's2', 's3'] },
@@ -30,21 +30,18 @@ export const emptyMap = (): MetroMap => ({
 })
 
 export function isWaypoint(station: Station) {
-  return station.ghost === true || station.id.startsWith('w-')
+  return station.kind === 'waypoint'
 }
 
 export function stationIcons(station: Station) {
-  return [...new Set([
-    ...(station.icons ?? []),
-    ...(station.icon === 'none' ? [] : [station.icon]),
-  ])]
+  return [...new Set(station.icons)]
 }
 
 export function normalizeMap(source: MetroMap): MetroMap {
   const stations = source.stations.map((station) => {
     const icons = stationIcons(station)
-    return isWaypoint(station)
-      ? { ...station, icons, ghost: true, name: '', hideLabel: true }
+    return station.kind === 'waypoint'
+      ? { ...station, icons, name: '', hideLabel: true }
       : { ...station, icons }
   })
   const lines = source.lines.map((line) => ({ ...line, styleOverridden: line.styleOverridden ?? true, nameOverridden: line.nameOverridden ?? true }))
@@ -257,11 +254,11 @@ export function insertStationByProximity(line: MetroLine, stationId: string, sta
 }
 
 export function fallbackStationName(map: MetroMap, station: Station) {
-  if (station.ghost) return ''
+  if (station.kind === 'waypoint') return ''
   const count = map.stations
-    .filter((item) => Boolean(item.ghost) === Boolean(station.ghost))
+    .filter((item) => item.kind === station.kind)
     .findIndex((item) => item.id === station.id) + 1
-  return station.ghost ? `Waypoint ${count}` : `Station ${count}`
+  return `Station ${count}`
 }
 
 export function mergeManualInterchange(groups: string[][], firstId: string, secondId: string) {

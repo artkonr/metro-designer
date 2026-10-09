@@ -40,16 +40,16 @@ describe('map domain helpers', () => {
     expect(generatedLineName(group, 2)).toBe('M3')
   })
 
-  it('normalizes legacy waypoints and assigns ungrouped lines', () => {
+  it('normalizes waypoints and assigns ungrouped lines', () => {
     const source: MetroMap = {
       ...initialMap,
-      stations: [{ ...initialMap.stations[0], id: 'w-legacy', name: 'Old waypoint' }],
+      stations: [{ ...initialMap.stations[0], id: 'w-1', kind: 'waypoint', name: 'Old waypoint' }],
       lines: [{ ...initialMap.lines[0], groupId: undefined }],
       lineGroups: undefined,
     }
     const normalized = normalizeMap(source)
 
-    expect(normalized.stations[0]).toMatchObject({ ghost: true, name: '', hideLabel: true })
+    expect(normalized.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
     expect(normalized.lines[0].groupId).toBe('g-metro')
     expect(normalized.lineGroups?.[0].lineIds).toContain(normalized.lines[0].id)
   })
@@ -131,10 +131,10 @@ describe('map domain helpers', () => {
   })
 
   it('handles waypoint and fallback station names', () => {
-    const waypoint = { ...initialMap.stations[0], id: 'w-1', ghost: undefined }
+    const waypoint = { ...initialMap.stations[0], id: 'w-1', kind: 'waypoint' as const }
     expect(isWaypoint(waypoint)).toBe(true)
     expect(fallbackStationName(initialMap, initialMap.stations[0])).toBe('Station 1')
-    expect(fallbackStationName({ ...initialMap, stations: [waypoint] }, { ...waypoint, ghost: true })).toBe('')
+    expect(fallbackStationName({ ...initialMap, stations: [waypoint] }, waypoint)).toBe('')
   })
 
   it('removes empty ephemeral groups and handles missing insertion stations', () => {

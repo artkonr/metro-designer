@@ -234,7 +234,7 @@ export function Inspector({
                       if (item.id !== station.id) return item
                       const icons = stationIcons(item)
                       const nextIcons = icons.includes(value) ? icons.filter((icon) => icon !== value) : [...icons, value]
-                      return { ...item, icons: nextIcons, icon: nextIcons.at(-1) ?? 'none' }
+                      return { ...item, icons: nextIcons }
                     }),
                   }))}
                 >

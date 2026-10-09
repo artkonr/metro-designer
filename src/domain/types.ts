@@ -8,7 +8,8 @@ export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'hollow'
 
 export type LineNamingPattern = 'simple' | 'alphabet' | 'numbered'
 
-export type StationIcon = 'none' | 'train' | 'bus' | 'plane' | 'ship'
+export type StationIcon = 'train' | 'bus' | 'plane' | 'ship'
+export type StationKind = 'waypoint' | 'station'
 
 export type StationDragState = { type: 'station' | 'label'; id: string; offset: Point }
 
@@ -24,15 +25,14 @@ export type DragState =
 export type Station = {
   id: string
   name: string
-  ghost?: boolean
+  kind: StationKind
   interchangeStyle?: 'regular' | 'converging'
   x: number
   y: number
   labelOffset: Point
   labelAngle?: number
   hideLabel?: boolean
-  icon: StationIcon
-  icons?: StationIcon[]
+  icons: StationIcon[]
 }
 
 export type MetroLine = {

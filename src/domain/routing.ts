@@ -41,7 +41,7 @@ export function getInterchangeIds(map: MetroMap) {
   })
 
   const convergingIds = new Set([...stationLineIds]
-    .filter(([stationId, lineIds]) => !stationsById.get(stationId)?.ghost && lineIds.size > 1)
+    .filter(([stationId, lineIds]) => stationsById.get(stationId)?.kind !== 'waypoint' && lineIds.size > 1)
     .map(([stationId]) => stationId))
 
   incidentSharedEdges.forEach((edgeKeys, stationId) => {
@@ -144,7 +144,7 @@ export function analyzeRoutes(map: MetroMap, junctionIds: Set<string>): RouteAna
     }))
   })))
 
-  const stationIds = map.stations.filter((station) => !station.ghost).map((station) => station.id)
+  const stationIds = map.stations.filter((station) => station.kind === 'station').map((station) => station.id)
   const routes: RouteAnalysis[] = []
 
   stationIds.forEach((fromId, fromIndex) => {
