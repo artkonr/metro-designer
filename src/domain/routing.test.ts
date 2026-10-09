@@ -27,10 +27,11 @@ describe('routing helpers', () => {
       stations: ['a', 'b', 'c', 'd'].map((id, index) => ({
         id,
         name: id,
+        kind: 'station' as const,
         x: index * 100,
         y: 0,
         labelOffset: { x: 0, y: -30 },
-        icon: 'none',
+        icons: [],
       })),
       lines: [
         { id: 'l1', name: 'One', color: '#111', style: 'solid', stationIds: ['a', 'b'] },

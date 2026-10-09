@@ -8,13 +8,17 @@ import type { MetroMap, SelectedConnection, Station } from '../domain/types'
 
 export async function parseMapFile(file: File): Promise<MetroMap> {
   const parsed = yaml.load(await file.text()) as MetroMap
-  if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.stations) || !Array.isArray(parsed.lines)) {
+  if (
+    !parsed
+    || parsed.version !== 1
+    || !Array.isArray(parsed.stations)
+    || !parsed.stations.every((station) => station.kind === 'station' || station.kind === 'waypoint')
+    || !parsed.stations.every((station) => Array.isArray(station.icons))
+    || !Array.isArray(parsed.lines)
+  ) {
     throw new Error('Unsupported map file')
   }
-  return normalizeMap({
-    ...parsed,
-    stations: parsed.stations.map((station) => ({ ...station, ghost: station.ghost ?? station.id.startsWith('w-') })),
-  })
+  return normalizeMap(parsed)
 }
 
 export function downloadMapYaml(map: MetroMap) {
@@ -53,7 +57,7 @@ export function exportMapPng({
 
   map.stations.forEach((station) => {
     includeRect(station.x - 12, station.y - 12, station.x + 12, station.y + 12)
-    if (station.ghost || !station.name.trim() || station.hideLabel) return
+    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return
     const offset = stationLabelOffset(station)
     const labelX = station.x + offset.x
     const labelY = station.y + offset.y

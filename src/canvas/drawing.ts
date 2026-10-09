@@ -96,7 +96,7 @@ export function drawMap(
     ctx.fillStyle = '#fff'
     ctx.strokeStyle = selected ? '#111827' : '#263442'
     ctx.lineWidth = selected ? 4 : 3
-    if (station.ghost) {
+    if (station.kind === 'waypoint') {
       const lineColor = map.lines.find((line) => line.stationIds.includes(station.id))?.color ?? '#93a0ab'
       const converges = map.lines.filter((line) => line.stationIds.includes(station.id)).length > 1
       const radius = converges ? (selected ? 8 : 7) : (selected ? 5 : 4)
@@ -121,19 +121,15 @@ export function drawMap(
       ctx.stroke()
     }
     ctx.restore()
-    if (station.ghost || !station.name.trim() || station.hideLabel) return
+    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return
     const labelOffset = stationLabelOffset(station)
     const labelX = station.x + labelOffset.x
     const labelY = station.y + labelOffset.y
-    ctx.fillStyle = station.ghost ? '#86929f' : '#17212b'
+    ctx.fillStyle = '#17212b'
     ctx.textBaseline = 'middle'
     ctx.font = '600 14px Inter, system-ui, sans-serif'
     const labelAngle = station.labelAngle
-    if (station.ghost) {
-      ctx.textAlign = labelAngle === 90 ? 'left' : labelAngle === 270 ? 'right' : 'center'
-      ctx.fillText(`· ${station.name}`, labelX, labelY)
-    } else {
-      const icons = stationIcons(station)
+    const icons = stationIcons(station)
       const nameLines = station.name.split('\n')
       const nameWidth = Math.max(...nameLines.map((name) => ctx.measureText(name).width))
       if (!icons.length) {
@@ -172,8 +168,6 @@ export function drawMap(
           ctx.fillText(name, left + iconLayout.width + 4, labelY + (index - (nameLines.length - 1) / 2) * 16)
         })
       }
-    }
-
   })
   ctx.restore()
 }
@@ -262,10 +256,6 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
       })
     })
   return labels
-}
-
-export function iconGlyph(icon: StationIcon) {
-  return icon === 'train' ? '🚈︎' : icon === 'plane' ? '✈︎' : icon === 'ship' ? '⛴︎' : ''
 }
 
 export function canonicalColor(color: string) {
@@ -449,7 +439,6 @@ function drawModalityIcon(
   y: number,
   redraw: () => void,
 ) {
-  if (icon === 'none') return
   const image = modalityImages.get(icon) ?? new Image()
   if (!modalityImages.has(icon)) {
     modalityImages.set(icon, image)

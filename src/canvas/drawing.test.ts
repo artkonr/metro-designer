@@ -1,14 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { initialMap } from '../domain/map'
 import type { MetroMap, StationIcon } from '../domain/types'
-import { drawMap, getLineEndpointLabels, iconGlyph, canonicalColor, lineOutlineStyle, readableText, stationIconLayout } from './drawing'
+import { drawMap, getLineEndpointLabels, canonicalColor, lineOutlineStyle, readableText, stationIconLayout } from './drawing'
 
 describe('drawing helpers', () => {
-  it('maps station icons and line styles to rendering values', () => {
-    expect(iconGlyph('train')).toContain('🚈')
-    expect(iconGlyph('plane')).toContain('✈')
-    expect(iconGlyph('ship')).toContain('⛴')
-    expect(iconGlyph('bus')).toBe('')
+  it('maps line styles to rendering values', () => {
     expect(canonicalColor('  #ABCDEF ')).toBe('#abcdef')
     expect(readableText('#ffffff')).toBe('#17212b')
     expect(readableText('#000000')).toBe('#fff')
@@ -32,8 +28,8 @@ describe('drawing helpers', () => {
       version: 1,
       title: 'Single line',
       stations: [
-        { id: 'a', name: 'A', x: 100, y: 100, labelOffset: { x: 0, y: -30 }, icon: 'none' },
-        { id: 'b', name: 'B', x: 200, y: 100, labelOffset: { x: 0, y: -30 }, icon: 'none' },
+        { id: 'a', name: 'A', kind: 'station', x: 100, y: 100, labelOffset: { x: 0, y: -30 }, icons: [] },
+        { id: 'b', name: 'B', kind: 'station', x: 200, y: 100, labelOffset: { x: 0, y: -30 }, icons: [] },
       ],
       lines: [{ id: 'l', name: 'Line', color: '#123456', style: 'solid', stationIds: ['a', 'b'] }],
       lineGroups: [],
@@ -97,7 +93,7 @@ describe('drawing helpers', () => {
       stations: [
         { ...initialMap.stations[0], icons: ['plane', 'train', 'bus', 'ship'] as StationIcon[] },
         ...initialMap.stations.slice(1),
-        { id: 'w-1', name: '', x: 380, y: 260, labelOffset: { x: 0, y: -30 }, icon: 'none' as const, ghost: true },
+        { id: 'w-1', name: '', kind: 'waypoint' as const, x: 380, y: 260, labelOffset: { x: 0, y: -30 }, icons: [] },
       ],
       lines: [
         ...initialMap.lines,

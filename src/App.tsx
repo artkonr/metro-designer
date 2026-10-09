@@ -93,7 +93,7 @@ export default function App() {
     if (!focusNewStationIdRef.current || focusNewStationIdRef.current !== selectedStationId) return
     const frame = requestAnimationFrame(() => {
       const station = map.stations.find((item) => item.id === selectedStationId)
-      if (station?.ghost) {
+      if (station?.kind === 'waypoint') {
         stationLineSelectRef.current?.focus()
       } else {
         stationNameInputRef.current?.focus()
@@ -122,7 +122,7 @@ export default function App() {
     setStatsChangeFilter('')
     setStatsReport({
       lines: map.lines.length,
-      stations: map.stations.filter((station) => !station.ghost).length,
+      stations: map.stations.filter((station) => station.kind === 'station').length,
       interchanges: interchangeIds.size + (map.manualInterchanges?.length ?? 0),
       routes: analyzeRoutes(map, interchangeIds),
     })
@@ -214,7 +214,7 @@ export default function App() {
     return closest
   }
   const labelAt = (point: Point) => [...map.stations].reverse().find((station) => {
-    if (station.ghost || !station.name.trim() || station.hideLabel) return false
+    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return false
     const offset = stationLabelOffset(station)
     const x = station.x + offset.x
     const y = station.y + offset.y
@@ -278,8 +278,8 @@ export default function App() {
         setStatus('That grid node is already occupied')
         return
       }
-      const ghost = tool === 'waypoint'
-      const created = { id: nextId(ghost ? 'w' : 's'), name: '', x: location.x, y: location.y, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icon: 'none' as StationIcon, ghost }
+      const waypoint = tool === 'waypoint'
+      const created = { id: nextId(waypoint ? 'w' : 's'), name: '', kind: waypoint ? 'waypoint' as const : 'station' as const, x: location.x, y: location.y, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] }
       updateMap((current) => ({
         ...current,
         stations: [...current.stations, created],
@@ -289,7 +289,7 @@ export default function App() {
       setStationNavigationLineId(null)
       focusNewStationIdRef.current = created.id
       setPlacementLineId(null)
-      setStatus(`${ghost ? 'Ghost waypoint' : 'Station'} added`)
+      setStatus(`${waypoint ? 'Waypoint' : 'Station'} added`)
       return
     }
     if (station) {

@@ -18,17 +18,18 @@ title: Imported map
 stations:
   - id: w-1
     name: Legacy waypoint
+    kind: waypoint
     x: 0
     y: 0
     labelOffset: { x: 0, y: -30 }
-    icon: none
+    icons: []
 lines: []
 `], 'map.yaml', { type: 'text/yaml' })
 
     const map = await parseMapFile(file)
 
     expect(map.title).toBe('Imported map')
-    expect(map.stations[0]).toMatchObject({ ghost: true, name: '', hideLabel: true })
+    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
   })
 
   it('rejects unsupported map files', async () => {
