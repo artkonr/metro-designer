@@ -7,7 +7,8 @@ import { normalizeMap, stationIcons } from '../domain/map'
 import type { MetroMap, SelectedConnection, Station } from '../domain/types'
 
 export async function parseMapFile(file: File): Promise<MetroMap> {
-  const parsed = yaml.load(await file.text()) as MetroMap
+  const text = await file.text()
+  const parsed = (file.name.toLowerCase().endsWith('.json') ? JSON.parse(text) : yaml.load(text)) as MetroMap
   if (
     !parsed
     || parsed.version !== 1
@@ -24,6 +25,11 @@ export async function parseMapFile(file: File): Promise<MetroMap> {
 export function downloadMapYaml(map: MetroMap) {
   const blob = new Blob([yaml.dump(map, { noRefs: true })], { type: 'text/yaml' })
   downloadBlob(blob, `${slug(map.title)}.yaml`)
+}
+
+export function downloadMapJson(map: MetroMap) {
+  const blob = new Blob([JSON.stringify(map)], { type: 'application/json' })
+  downloadBlob(blob, `${slug(map.title)}.json`)
 }
 
 export function exportMapPng({
