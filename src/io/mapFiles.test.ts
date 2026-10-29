@@ -8,7 +8,7 @@ const { drawMap, getLineEndpointLabels } = vi.hoisted(() => ({
 
 vi.mock('../canvas/drawing', () => ({ drawMap, getLineEndpointLabels }))
 
-import { downloadMapYaml, exportMapPng, parseMapFile } from './mapFiles'
+import { downloadMapJson, downloadMapYaml, exportMapPng, parseMapFile } from './mapFiles'
 
 describe('map file I/O', () => {
   it('parses and normalizes a YAML map file', async () => {
@@ -29,6 +29,17 @@ lines: []
     const map = await parseMapFile(file)
 
     expect(map.title).toBe('Imported map')
+    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
+  })
+
+  it('parses a JSON map file', async () => {
+    const file = new File([JSON.stringify({
+      ...initialMap,
+      stations: [{ ...initialMap.stations[0], kind: 'waypoint', name: 'Temporary' }],
+    })], 'map.json', { type: 'application/json' })
+
+    const map = await parseMapFile(file)
+
     expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
   })
 
@@ -60,6 +71,22 @@ lines: []
     expect(click).toHaveBeenCalledOnce()
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:test')
     expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('central-north.yaml')
+    click.mockRestore()
+  })
+
+  it('downloads JSON using a slugified map title', () => {
+    const createObjectURL = vi.fn(() => 'blob:test-json')
+    const revokeObjectURL = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    downloadMapJson({ ...initialMap, title: 'Central / North!' })
+
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(click).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-json')
+    expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('central-north.json')
     click.mockRestore()
   })
 

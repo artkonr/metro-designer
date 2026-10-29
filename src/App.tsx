@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { canonicalColor, drawMap, getLineEndpointLabels, lineOutlineStyle, readableText } from './canvas/drawing'
 import { distanceToSegment, labelOffsetForAngle, nearestLabelAngle, pointKey, snapPoint, stationLabelOffset, zoomViewport, moveStation } from './canvas/geometry'
@@ -9,7 +9,7 @@ import { COLORS, UNASSIGNED_GROUP_ID, WORKSPACE } from './domain/constants'
 import { cloneMap, connectionKey, deleteLineGroup, emptyMap, generatedLineName, initialMap, insertStationByProximity, isConnectionDeleted, lineConnectionPairs, lineNameOrder, mergeManualInterchange, nextId, removeEmptyUnassigned } from './domain/map'
 import { analyzeRoutes, getInterchangeIds, shortestRoute } from './domain/routing'
 import type { DragState, FrameSelection, LineNamingPattern, LineStyle, MetroLine, Point, RouteAnalysis, SelectedConnection, Station, StationDragState, StationIcon, Tool, Viewport } from './domain/types'
-import { downloadMapYaml, exportMapPng, parseMapFile } from './io/mapFiles'
+import { downloadMapJson, downloadMapYaml, exportMapPng, parseMapFile } from './io/mapFiles'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useMapHistory } from './hooks/useMapHistory'
 
@@ -29,8 +29,11 @@ export default function App() {
   const [routeTo, setRouteTo] = useState('s3')
   const [route, setRoute] = useState<string[]>([])
   const [status, setStatus] = useState('Ready')
+  const [showAppMenu, setShowAppMenu] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showDeleteLineConfirm, setShowDeleteLineConfirm] = useState(false)
+  const [pendingFileAction, setPendingFileAction] = useState<'new' | 'open' | null>(null)
   const [statsReport, setStatsReport] = useState<{ lines: number; stations: number; interchanges: number; routes: RouteAnalysis[] } | null>(null)
   const [statsChangeFilter, setStatsChangeFilter] = useState<number | ''>('')
   const [snapToGrid, setSnapToGrid] = useState(true)
@@ -43,6 +46,8 @@ export default function App() {
   const [frameSelection, setFrameSelection] = useState<FrameSelection | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const titleRepeatRef = useRef<{ key: string | null; timeout: number | null; interval: number | null }>({ key: null, timeout: null, interval: null })
   const stationNameInputRef = useRef<HTMLTextAreaElement>(null)
   const lineNameInputRef = useRef<HTMLTextAreaElement>(null)
   const groupNameInputRef = useRef<HTMLInputElement>(null)
@@ -52,6 +57,62 @@ export default function App() {
   const focusNewStationIdRef = useRef<string | null>(null)
   const focusNewLineIdRef = useRef<string | null>(null)
   const focusNewGroupIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const titleInput = titleInputRef.current
+    if (document.activeElement !== titleInput && titleInput && titleInput.value !== map.title) {
+      titleInput.value = map.title
+    }
+  }, [map.title])
+
+  const clearTitleRepeat = () => {
+    if (titleRepeatRef.current.timeout !== null) window.clearTimeout(titleRepeatRef.current.timeout)
+    if (titleRepeatRef.current.interval !== null) window.clearInterval(titleRepeatRef.current.interval)
+    titleRepeatRef.current = { key: null, timeout: null, interval: null }
+  }
+
+  const updateTitleFromInput = (input: HTMLInputElement) => {
+    const title = input.value
+    startTransition(() => updateMap((current) => ({ ...current, title })))
+  }
+
+  const repeatTitleKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || (event.key.length !== 1 && event.key !== 'Backspace' && event.key !== 'Delete')) {
+      event.stopPropagation()
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    const key = event.key
+    if (event.repeat && titleRepeatRef.current.key === key) return
+
+    const input = event.currentTarget
+    const applyKey = () => {
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? start
+      if (key.length === 1) {
+        input.setRangeText(key, start, end, 'end')
+      } else if (key === 'Backspace') {
+        if (start !== end) input.setRangeText('', start, end, 'start')
+        else if (start > 0) input.setRangeText('', start - 1, start, 'start')
+      } else if (start !== end) {
+        input.setRangeText('', start, end, 'start')
+      } else if (end < input.value.length) {
+        input.setRangeText('', end, end + 1, 'start')
+      }
+      updateTitleFromInput(input)
+    }
+
+    clearTitleRepeat()
+    titleRepeatRef.current.key = key
+    applyKey()
+    titleRepeatRef.current.timeout = window.setTimeout(() => {
+      titleRepeatRef.current.interval = window.setInterval(applyKey, 35)
+    }, 450)
+  }
+
+  useEffect(() => clearTitleRepeat, [])
 
   const selectedStation = map.stations.find((station) => station.id === selectedStationId)
   const selectedLine = map.lines.find((line) => line.id === selectedLineId)
@@ -576,9 +637,9 @@ export default function App() {
     },
   })
 
-  const saveMap = () => {
-    downloadMapYaml(map)
-    setStatus('Map saved')
+  const closeAppMenu = () => {
+    setShowAppMenu(false)
+    setShowExportMenu(false)
   }
 
   const newMap = () => {
@@ -624,6 +685,22 @@ export default function App() {
     setStatus('PNG exported')
   }
 
+  const confirmFileAction = () => {
+    const action = pendingFileAction
+    setPendingFileAction(null)
+    if (action === 'new') newMap()
+    if (action === 'open') fileInputRef.current?.click()
+  }
+
+  useEffect(() => {
+    if (!showAppMenu) return
+    const close = (event: KeyboardEvent) => {
+      if (event.code === 'Escape') setShowAppMenu(false)
+    }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [showAppMenu])
+
   const calculateRoute = () => {
     const result = shortestRoute(map, routeFrom, routeTo)
     setRoute(result)
@@ -633,27 +710,95 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">M</span><div><strong>Metro Designer</strong><small>schematic transit studio</small></div></div>
-        <button className="help-button" aria-label="Show keyboard shortcuts" onClick={() => setShowHelp(true)}>?</button>
-        <input className="title-input" value={map.title} onChange={(event) => updateMap((current) => ({ ...current, title: event.target.value }))} aria-label="Map title" />
-        <div className="top-actions">
-          <div className="top-action-group">
-            <button className="primary" onClick={newMap}>New</button>
-          </div>
-          <div className="top-action-group">
-            <button onClick={() => fileInputRef.current?.click()}>Open</button>
-            <button onClick={saveMap}>Save</button>
-            <button className="primary" onClick={exportPng}>Export PNG</button>
-          </div>
-          <input ref={fileInputRef} type="file" accept=".yaml,.yml" hidden onChange={(event) => event.target.files?.[0] && loadMap(event.target.files[0]).catch((error: Error) => setStatus(error.message))} />
+        <div className="brand">
+          <button className="app-menu-trigger" aria-label="Open application menu" aria-expanded={showAppMenu} onClick={() => {
+            if (showAppMenu) closeAppMenu()
+            else setShowAppMenu(true)
+          }}>
+            <span className="brand-mark">M</span>
+            <span className="app-menu-triangle" />
+          </button>
+          <div><strong>Metro Designer</strong><small>schematic transit studio</small></div>
+        </div>
+        <input
+          ref={titleInputRef}
+          className="title-input"
+          defaultValue={map.title}
+          onChange={(event) => {
+            const title = event.target.value
+            startTransition(() => updateMap((current) => ({ ...current, title })))
+          }}
+          onKeyDown={repeatTitleKey}
+          onKeyUp={(event) => {
+            if (event.key === titleRepeatRef.current.key) clearTitleRepeat()
+            event.stopPropagation()
+          }}
+          onBlur={() => {
+            clearTitleRepeat()
+            const title = titleInputRef.current?.value ?? ''
+            if (title !== map.title) updateMap((current) => ({ ...current, title }))
+          }}
+          aria-label="Map title"
+        />
+        <button className="stats-button primary topbar-stats-button tooltip-button" aria-label="Analyze map stats" data-tooltip="Analyze map stats" onClick={analyzeStats}>Analyze</button>
+        <div className="topbar-draw-controls" aria-label="Draw tools">
+          {([['select', '↖', 'Select / move'], ['station', '●', 'New station'], ['waypoint', '◇', 'New waypoint'], ['frame', '□', 'Frame select']] as const).map(([value, icon, label]) => (
+            <button key={value} className={tool === value ? 'topbar-tool active tooltip-button' : 'topbar-tool tooltip-button'} aria-label={label} data-tooltip={label} onClick={() => setTool(value)}><b>{icon}</b></button>
+          ))}
+          <button className="topbar-tool undo-snap-button tooltip-button" aria-label="Undo" data-tooltip="Undo" onMouseDown={(event) => event.preventDefault()} onClick={undo} disabled={!undoCount}>↺</button>
+          <label className="topbar-grid-toggle tooltip-button" data-tooltip="Snap to grid">
+            <input type="checkbox" checked={snapToGrid} onChange={(event) => setSnapToGrid(event.target.checked)} />
+            <span className="topbar-grid-label">Grid</span>
+            <span className="toggle"></span>
+          </label>
         </div>
       </header>
+      {showAppMenu && (
+        <div className="app-menu-layer" role="presentation" onMouseDown={closeAppMenu}>
+          <aside className="app-menu-sidebar" aria-label="Application menu" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="app-menu-item app-menu-text-entry" onClick={() => { closeAppMenu(); setPendingFileAction('new') }}>New</button>
+            <button className="app-menu-item app-menu-text-entry" onClick={() => { closeAppMenu(); setPendingFileAction('open') }}>Open</button>
+            <section className="app-menu-section" aria-labelledby="export-menu-heading">
+              <div className="app-menu-export-dropdown">
+                <button
+                  className="app-menu-item app-menu-export-trigger"
+                  aria-expanded={showExportMenu}
+                  aria-haspopup="menu"
+                  onClick={() => setShowExportMenu((current) => !current)}
+                >
+                  <span id="export-menu-heading" className="app-menu-export-label">Export as</span>
+                  <span className="app-menu-chevron" aria-hidden="true">▾</span>
+                </button>
+                {showExportMenu && (
+                  <div className="app-menu-export-options" role="menu">
+                    <button role="menuitem" onClick={() => { closeAppMenu(); downloadMapYaml(map); setStatus('Map saved') }}>YAML</button>
+                    <button role="menuitem" onClick={() => { closeAppMenu(); downloadMapJson(map); setStatus('Map saved') }}>JSON</button>
+                    <button role="menuitem" onClick={() => { closeAppMenu(); exportPng() }}>PNG</button>
+                  </div>
+                )}
+              </div>
+            </section>
+            <button className="app-menu-item app-menu-text-entry app-menu-help" onClick={() => { closeAppMenu(); setShowHelp(true) }}>Help</button>
+          </aside>
+        </div>
+      )}
+      <input ref={fileInputRef} type="file" accept=".yaml,.yml,.json,application/json,text/yaml" hidden onChange={(event) => event.target.files?.[0] && loadMap(event.target.files[0]).catch((error: Error) => setStatus(error.message))} />
       <KeyboardShortcuts open={showHelp} onClose={() => setShowHelp(false)} />
       {showDeleteLineConfirm && <div className="modal-backdrop" role="presentation">
         <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-line-title">
           <h2 id="delete-line-title">Delete line?</h2>
           <p>This line and its connections will be removed.</p>
           <div className="confirm-actions"><button className="secondary-button" onClick={() => setShowDeleteLineConfirm(false)}>Cancel</button><button className="delete-button" onClick={confirmDeleteLine}>Delete line</button></div>
+        </div>
+      </div>}
+      {pendingFileAction && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingFileAction(null) }}>
+        <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="file-action-title">
+          <h2 id="file-action-title">{pendingFileAction === 'new' ? 'Create a new map?' : 'Open another map?'}</h2>
+          <p>Your current map may contain unsaved changes.</p>
+          <div className="confirm-actions">
+            <button className="secondary-button" onClick={() => setPendingFileAction(null)}>Cancel</button>
+            <button className="primary" onClick={confirmFileAction}>{pendingFileAction === 'new' ? 'Create new' : 'Open map'}</button>
+          </div>
         </div>
       </div>}
       {statsReport && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setStatsReport(null) }}>
@@ -683,16 +828,7 @@ export default function App() {
           </div>
         </section>
         <aside className="sidebar right-panel">
-          <section className="draw-panel"><div className="draw-heading"><h2>Draw</h2><div className="tool-grid">
-            {([['select', '↖', 'Select'], ['station', '●', 'Station']] as const).map(([value, icon, label]) => <button key={value} className={tool === value ? 'tool active tooltip-button' : 'tool tooltip-button'} aria-label={label} data-tooltip={value === 'select' ? 'Select / move' : 'New station'} onClick={() => setTool(value)}><b>{icon}</b></button>)}
-            <button className={tool === 'waypoint' ? 'tool active tooltip-button' : 'tool tooltip-button'} aria-label="Waypoint" data-tooltip="New waypoint" onClick={() => setTool('waypoint')}><b>◇</b></button>
-            <button className={tool === 'frame' ? 'tool active tooltip-button' : 'tool tooltip-button'} aria-label="Frame selector" data-tooltip="Frame select" onClick={() => setTool('frame')}><b>□</b></button>
-            <div className="tool-divider"><button className="tool undo-snap-button tooltip-button" aria-label="Undo" data-tooltip="Undo" onMouseDown={(event) => event.preventDefault()} onClick={undo} disabled={!undoCount}>↺</button></div>
-          </div></div>
-          <div className="snap-row"><div className="snap-tool-group"><span>Snap to grid</span><label className="snap-tool" aria-label="Snap to grid"><input type="checkbox" checked={snapToGrid} onChange={(event) => setSnapToGrid(event.target.checked)} /><span className="toggle"></span></label></div></div>
-          </section>
           <Inspector station={selectedStation} stations={map.stations} manualInterchanges={map.manualInterchanges ?? []} selectedStationIds={selectedStationIds} interchangeAnchorId={interchangeAnchorId} onStartManualInterchange={startManualInterchange} line={selectedLine} group={selectedLine ? undefined : selectedGroup} lineGroups={map.lineGroups ?? []} lines={map.lines} placementLineId={placementLineId} selectedConnection={selectedConnection} isInterchange={selectedStation ? interchangeIds.has(selectedStation.id) : false} updateMap={updateMap} onDelete={deleteSelected} onDeleteGroup={deleteSelectedGroup} onDeleteConnection={deleteSelectedConnection} onSelectLine={(id) => { setSelectedLineId(id); setActiveLineId(id); setSelectedStationId(null); setSelectedStationIds([]); setSelectedConnection(null) }} onSelectPlacementLine={selectPlacementLine} onLineNameEnter={() => setTool('select')} stationNameInputRef={stationNameInputRef} lineNameInputRef={lineNameInputRef} groupNameInputRef={groupNameInputRef} stationLineSelectRef={stationLineSelectRef} lineGroupSelectRef={lineGroupSelectRef} lineStyleSelectRef={lineStyleSelectRef} />
-          <button className="stats-button primary" onClick={analyzeStats}>Analyze map stats</button>
         </aside>
       </div>
     </main>
