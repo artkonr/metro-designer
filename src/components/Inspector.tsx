@@ -3,8 +3,8 @@ import type { RefObject } from 'react'
 import { readableText } from '../canvas/drawing'
 import { labelOffsetForAngle } from '../canvas/geometry'
 import { COLOR_PRESETS, LABEL_ANGLES } from '../domain/constants'
-import { applyGroupNaming, fallbackStationName, generatedLineName, isWaypoint, moveLineToGroup, removeEmptyUnassigned, stationIcons } from '../domain/map'
-import type { LineGroup, LineNamingPattern, LineStyle, MetroLine, MetroMap, SelectedConnection, Station } from '../domain/types'
+import { applyGroupNaming, effectiveLineName, effectiveLineStyle, fallbackStationName, isWaypoint, moveLineToGroup, removeEmptyUnassigned, resetLineName, stationIcons } from '../domain/map'
+import type { Interchange, LineGroup, LineNamingPattern, LineStyle, MetroLine, MetroMap, SelectedConnection, Station } from '../domain/types'
 import { LineSearchDropdown } from './LineSearchDropdown'
 import { StyledDropdown } from './StyledDropdown'
 import { MODALITY_ICON_URLS } from '../assets/modalityIcons'
@@ -12,7 +12,7 @@ import { MODALITY_ICON_URLS } from '../assets/modalityIcons'
 type InspectorProps = {
   station?: Station
   stations: Station[]
-  manualInterchanges: string[][]
+  manualInterchanges: Interchange[]
   selectedStationIds: string[]
   interchangeAnchorId: string | null
   onStartManualInterchange: () => void
@@ -67,6 +67,7 @@ export function Inspector({
   lineStyleSelectRef,
 }: InspectorProps) {
   const waypoint = station ? isWaypoint(station) : false
+  const effectiveSelectedLineName = line ? effectiveLineName(line, lineGroups, lines) : ''
 
   return (
     <section className="panel inspector">
@@ -136,14 +137,17 @@ export function Inspector({
               />
             </div>
           )}
-          {!waypoint && manualInterchanges.some((interchangeGroup) => interchangeGroup.includes(station.id)) && (
+          {!waypoint && manualInterchanges.some((interchangeGroup) => interchangeGroup.stations.some((item) => item.id === station.id)) && (
             <label className="toggle-row station-label-toggle">
               <input
                 type="checkbox"
-                checked={station.hideLabel ?? false}
+                checked={manualInterchanges.some((interchangeGroup) => interchangeGroup.stations.some((item) => item.id === station.id && !item.showName))}
                 onChange={(event) => updateMap((map) => ({
                   ...map,
-                  stations: map.stations.map((item) => item.id === station.id ? { ...item, hideLabel: event.target.checked } : item),
+                  manualInterchanges: (map.manualInterchanges ?? []).map((interchangeGroup) => ({
+                    ...interchangeGroup,
+                    stations: interchangeGroup.stations.map((item) => item.id === station.id ? { ...item, showName: !event.target.checked } : item),
+                  })),
                 }))}
               />
               <span className="toggle"></span>
@@ -246,13 +250,13 @@ export function Inspector({
             </div>
           </div>
           <h3>Connected lines</h3>
-          {lineListForStation(station.id, lines, onSelectLine, (lineId) => updateMap((map) => ({
+          {lineListForStation(station.id, lines, lineGroups, onSelectLine, (lineId) => updateMap((map) => ({
             ...map,
             lines: map.lines.map((item) => item.id === lineId ? { ...item, stationIds: item.stationIds.filter((id) => id !== station.id) } : item),
           })))}
           {manualInterchangeListForStation(station.id, manualInterchanges, stations, lines, (interchangeGroup) => updateMap((map) => ({
             ...map,
-            manualInterchanges: (map.manualInterchanges ?? []).filter((item) => item.some((id) => !interchangeGroup.includes(id))),
+            manualInterchanges: (map.manualInterchanges ?? []).filter((item) => item.id !== interchangeGroup.id),
           })))}
         </>
       ) : group ? (
@@ -281,7 +285,6 @@ export function Inspector({
                   onChange={(value) => updateMap((map) => ({
                     ...map,
                     lineGroups: (map.lineGroups ?? []).map((item) => item.id === group.id ? { ...item, style: value as LineStyle } : item),
-                    lines: map.lines.map((item) => item.groupId === group.id && !item.styleOverridden ? { ...item, style: value as LineStyle } : item),
                   }))}
                 />
               </div>
@@ -303,7 +306,7 @@ export function Inspector({
                   />
                 </div>
               )}
-              <p className="muted">{group.lineIds.length} lines in this group</p>
+              <p className="muted">{lines.filter((item) => item.lineGroupId === group.id).length} lines in this group</p>
             </>
           )}
         </>
@@ -315,18 +318,18 @@ export function Inspector({
             <textarea
               rows={1}
               ref={lineNameInputRef}
-              value={flattenName(line.name)}
+              value={flattenName(effectiveSelectedLineName)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
                 if (event.shiftKey) {
                   event.preventDefault()
                   const input = event.currentTarget
-                  const start = visibleCursorToRaw(line.name, input.selectionStart ?? input.value.length)
-                  const end = visibleCursorToRaw(line.name, input.selectionEnd ?? input.selectionStart ?? input.value.length)
-                  const name = `${line.name.slice(0, start)}\n${line.name.slice(end)}`
+                  const start = visibleCursorToRaw(effectiveSelectedLineName, input.selectionStart ?? input.value.length)
+                  const end = visibleCursorToRaw(effectiveSelectedLineName, input.selectionEnd ?? input.selectionStart ?? input.value.length)
+                  const name = `${effectiveSelectedLineName.slice(0, start)}\n${effectiveSelectedLineName.slice(end)}`
                   updateMap((map) => ({
                     ...map,
-                    lines: map.lines.map((item) => item.id === line.id ? { ...item, name, nameOverridden: true } : item),
+                    lines: map.lines.map((item) => item.id === line.id ? { ...item, name } : item),
                   }))
                   requestAnimationFrame(() => {
                     const position = input.selectionStart ?? input.value.length
@@ -341,10 +344,17 @@ export function Inspector({
               onChange={(event) => updateMap((map) => ({
                 ...map,
                 lines: map.lines.map((item) => item.id === line.id
-                  ? { ...item, name: mergeVisibleName(item.name, event.target.value), nameOverridden: true }
+                  ? { ...item, name: mergeVisibleName(effectiveSelectedLineName, event.target.value) }
                   : item),
               }))}
             />
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => updateMap((map) => resetLineName(map, line.id))}
+            >
+              Reset to group naming
+            </button>
           </div>
           <div className="field">
             <label>Color</label>
@@ -376,7 +386,7 @@ export function Inspector({
             <label>Group</label>
             <StyledDropdown
               ref={lineGroupSelectRef}
-              value={line.groupId ?? lineGroups[0]?.id ?? ''}
+              value={line.lineGroupId ?? lineGroups[0]?.id ?? ''}
               options={lineGroups.map((item) => ({ value: item.id, label: item.name || 'Unnamed group' }))}
               onChange={(value) => updateMap((map) => moveLineToGroup(map, line.id, value))}
             />
@@ -385,11 +395,18 @@ export function Inspector({
             <label>Style</label>
             <StyledDropdown
               ref={lineStyleSelectRef}
-              value={line.style}
-              options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }, { value: 'hollow', label: 'Hollow' }]}
+              value={effectiveLineStyle(line, lineGroups)}
+              options={[{ value: 'inherit', label: 'Group default' }, { value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }, { value: 'hollow', label: 'Hollow' }]}
               onChange={(value) => updateMap((map) => ({
                 ...map,
-                lines: map.lines.map((item) => item.id === line.id ? { ...item, style: value as LineStyle, styleOverridden: true } : item),
+                lines: map.lines.map((item) => {
+                  if (item.id !== line.id) return item
+                  if (value === 'inherit') {
+                    const { style: _style, ...withoutStyle } = item
+                    return withoutStyle
+                  }
+                  return { ...item, style: value as LineStyle }
+                }),
               }))}
             />
           </div>
@@ -455,6 +472,7 @@ function visibleCursorToRaw(name: string, visiblePosition: number) {
 function lineListForStation(
   stationId: string,
   lines: MetroLine[],
+  lineGroups: LineGroup[],
   onSelectLine: (id: string) => void,
   onRemoveLine: (id: string) => void,
 ) {
@@ -467,9 +485,9 @@ function lineListForStation(
             style={{ background: line.color, color: readableText(line.color) }}
             onClick={() => onSelectLine(line.id)}
           >
-            {line.name}
+            {effectiveLineName(line, lineGroups, lines) || 'Unnamed line'}
           </button>
-          <button className="connected-line-remove" onClick={() => onRemoveLine(line.id)} aria-label={`Remove ${line.name} connection`}>×</button>
+          <button className="connected-line-remove" onClick={() => onRemoveLine(line.id)} aria-label={`Remove ${effectiveLineName(line, lineGroups, lines) || 'Unnamed line'} connection`}>×</button>
         </div>
       ))}
     </div>
@@ -478,22 +496,22 @@ function lineListForStation(
 
 function manualInterchangeListForStation(
   stationId: string,
-  groups: string[][],
+  groups: Interchange[],
   stations: Station[],
   lines: MetroLine[],
-  onRemove: (group: string[]) => void,
+  onRemove: (group: Interchange) => void,
 ) {
   const stationNames = new Map(stations.map((station) => [station.id, station.name || 'Unnamed station']))
-  const connections = groups.filter((group) => group.includes(stationId))
+  const connections = groups.filter((group) => group.stations.some((station) => station.id === stationId))
   if (!connections.length) return null
   return (
     <div className="connected-lines manual-interchange-list">
       {connections.map((group) => {
-        const otherIds = group.filter((id) => id !== stationId)
+        const otherIds = group.stations.map((station) => station.id).filter((id) => id !== stationId)
         const otherNames = otherIds.map((id) => stationNames.get(id) ?? 'Unnamed station').join(', ')
         const otherColor = lines.find((line) => otherIds.some((id) => line.stationIds.includes(id)))?.color ?? '#64748b'
         return (
-          <div className="connected-line-row" key={group.join('|')}>
+          <div className="connected-line-row" key={group.id}>
             <button type="button" className="connected-line-main" style={{ background: otherColor, color: readableText(otherColor) }}>↔ {otherNames}</button>
             <button className="connected-line-remove" onClick={() => onRemove(group)} aria-label="Remove interchange connection">×</button>
           </div>

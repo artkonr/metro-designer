@@ -31,18 +31,16 @@ export type Station = {
   y: number
   labelOffset: Point
   labelAngle?: number
-  hideLabel?: boolean
   icons: StationIcon[]
 }
 
 export type MetroLine = {
   id: string
-  name: string
+  name?: string
   color: string
-  style: LineStyle
-  styleOverridden?: boolean
-  nameOverridden?: boolean
-  groupId?: string
+  style?: LineStyle
+  lineGroupId?: string
+  order?: number
   stationIds: string[]
   loop?: boolean
   deletedConnections?: string[]
@@ -54,7 +52,6 @@ export type LineGroup = {
   style: LineStyle
   namingPattern: LineNamingPattern
   namingPrefix?: string
-  lineIds: string[]
   ephemeral?: boolean
 }
 
@@ -64,9 +61,21 @@ export type MetroMap = {
   stations: Station[]
   lines: MetroLine[]
   lineGroups?: LineGroup[]
-  manualInterchanges?: string[][]
-  lineLabelOffsets?: Record<string, Point>
-  terminusLabelOffsets?: Record<string, Point>
+  manualInterchanges?: Interchange[]
+  termini?: TerminusLabelOffset[]
+}
+
+export type Interchange = {
+  id: string
+  stations: { id: string; showName: boolean }[]
+}
+
+export type TerminusLabelOffset = {
+  id: string
+  stationId: string
+  x: number
+  y: number
+  lines: { lineId: string }[]
 }
 
 export type LineEndpointLabel = {

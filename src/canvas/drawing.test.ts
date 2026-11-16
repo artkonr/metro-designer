@@ -33,7 +33,7 @@ describe('drawing helpers', () => {
       ],
       lines: [{ id: 'l', name: 'Line', color: '#123456', style: 'solid', stationIds: ['a', 'b'] }],
       lineGroups: [],
-      lineLabelOffsets: { 'l:a': { x: 5, y: 6 } },
+      termini: [{ id: 'l:a', stationId: 'a', x: 5, y: 6, lines: [{ lineId: 'l' }] }],
     }
     const stations = new Map(map.stations.map((station) => [station.id, station]))
     const labels = getLineEndpointLabels(map, stations)
@@ -100,7 +100,7 @@ describe('drawing helpers', () => {
         { id: 'l3', name: 'Dotted', color: '#f00', style: 'dotted' as const, stationIds: ['s2', 's4'] },
         { id: 'l4', name: 'Rail', color: '#00f', style: 'hollow' as const, stationIds: ['s1', 'w-1', 's3'] },
       ],
-      manualInterchanges: [['s1', 's3']],
+      manualInterchanges: [{ id: 'i1', stations: [{ id: 's1', showName: true }, { id: 's3', showName: false }] }],
     }
 
     drawMap(

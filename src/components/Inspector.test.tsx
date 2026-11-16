@@ -84,7 +84,7 @@ describe('Inspector', () => {
     const { getMap } = renderInspector({
       station,
       selectedStationIds: ['s1'],
-      manualInterchanges: [['s1', 's3']],
+      manualInterchanges: [{ id: 'i1', stations: [{ id: 's1', showName: true }, { id: 's3', showName: false }] }],
       onStartManualInterchange,
       onSelectLine,
     })
@@ -124,19 +124,32 @@ describe('Inspector', () => {
     expect(getMap().stations.find((item) => item.id === station.id)?.name).toBe('Central Harbor\n')
   })
 
-  it('marks edited line names and styles as overridden', () => {
+  it('marks edited line names and stores explicit line styles', () => {
     const line = initialMap.lines[0]
     const { getMap } = renderInspector({ line })
 
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Express' } })
-    expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({ name: 'Express', nameOverridden: true })
+    expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({ name: 'Express' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to group naming' }))
+    expect(getMap().lines.find((item) => item.id === line.id)?.name).toBe('Line 1')
 
     fireEvent.click(screen.getByRole('button', { name: /Solid/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Hollow' }))
-    expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({ style: 'hollow', styleOverridden: true })
+    expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({ style: 'hollow' })
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Loop line' }))
     expect(getMap().lines.find((item) => item.id === line.id)?.loop).toBe(true)
+  })
+
+  it('clears an explicit line style with the group default option', () => {
+    const line = { ...initialMap.lines[0], style: 'hollow' as const }
+    const { getMap } = renderInspector({ line })
+
+    fireEvent.click(screen.getByRole('button', { name: /Hollow/ }))
+    fireEvent.click(screen.getByRole('option', { name: 'Group default' }))
+
+    expect(getMap().lines.find((item) => item.id === line.id)?.style).toBeUndefined()
   })
 
   it('inserts a newline into a line name with Shift+Enter', () => {
@@ -151,26 +164,26 @@ describe('Inspector', () => {
 
     expect(getMap().lines.find((item) => item.id === line.id)).toMatchObject({
       name: 'Blue Express\n',
-      nameOverridden: true,
     })
   })
 
   it('edits group naming and propagates the selected default style', () => {
     const group = initialMap.lineGroups![0]
-    const lines: MetroLine[] = initialMap.lines.map((line) => ({ ...line, styleOverridden: false, nameOverridden: false }))
-    const editableGroup: LineGroup = { ...group, namingPattern: 'simple', lineIds: lines.map((line) => line.id) }
+    const lines: MetroLine[] = initialMap.lines.map(({ style: _style, name: _name, ...line }) => line)
+    const editableGroup: LineGroup = { ...group, namingPattern: 'simple' }
     const { getMap, updateMap } = renderInspector({ group: editableGroup, lines, lineGroups: [editableGroup] })
-    updateMap((map) => ({ ...map, lines: lines.map((line) => ({ ...line, styleOverridden: false, nameOverridden: false })) }))
+    updateMap((map) => ({ ...map, lines }))
 
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Regional' } })
     expect(getMap().lineGroups?.[0].name).toBe('Regional')
     fireEvent.click(screen.getByRole('button', { name: /Solid/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Dashed' }))
-    expect(getMap().lines.every((line) => line.style === 'dashed')).toBe(true)
+    expect(getMap().lineGroups?.[0].style).toBe('dashed')
+    expect(getMap().lines.every((line) => line.style === undefined)).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: /Simple/ }))
     fireEvent.click(screen.getByRole('option', { name: 'Numbered' }))
-    expect(getMap().lines[0].name).toBe('1')
+    expect(getMap().lines[0].name).toBeUndefined()
     expect(getMap().lineGroups?.[0].namingPattern).toBe('numbered')
   })
 })

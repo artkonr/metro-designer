@@ -41,4 +41,15 @@ describe('useMapHistory', () => {
     act(() => result.current.undo())
     expect(result.current.map.title).toBe('New metro map')
   })
+
+  it('does not create history for an unchanged drag or an empty undo', () => {
+    const { result } = renderHook(() => useMapHistory(emptyMap))
+
+    act(() => result.current.beginDragHistory())
+    act(() => result.current.finishDragHistory())
+    act(() => result.current.undo())
+
+    expect(result.current.undoCount).toBe(0)
+    expect(result.current.map.title).toBe('New metro map')
+  })
 })

@@ -37,4 +37,18 @@ describe('StyledDropdown', () => {
     fireEvent.keyDown(trigger, { code: 'Escape' })
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
+
+  it('closes when clicking outside and supports empty options', () => {
+    const onChange = vi.fn()
+    render(
+      <StyledDropdown value="" placeholder="Choose" options={[]} onChange={onChange} />,
+    )
+    const trigger = screen.getByRole('button', { name: /Choose/ })
+    fireEvent.click(trigger)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    fireEvent.keyDown(trigger, { code: 'ArrowDown' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
 })

@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 
+import { effectiveLineName, effectiveLineStyle } from '../domain/map'
 import type { LineGroup, MetroLine } from '../domain/types'
 
 export const LineSearchDropdown = forwardRef<HTMLInputElement, {
@@ -12,8 +13,8 @@ export const LineSearchDropdown = forwardRef<HTMLInputElement, {
   const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const options = [...lines]
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .filter((line) => (line.name || 'Unnamed line').toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+    .sort((left, right) => effectiveLineName(left, lineGroups, lines).localeCompare(effectiveLineName(right, lineGroups, lines)))
+    .filter((line) => effectiveLineName(line, lineGroups, lines).toLocaleLowerCase().includes(query.toLocaleLowerCase()))
 
   useEffect(() => {
     if (!open) return
@@ -66,7 +67,9 @@ export const LineSearchDropdown = forwardRef<HTMLInputElement, {
       />
       {open && (
         <div className="styled-dropdown-menu" role="listbox">
-          {options.map((line, index) => (
+          {options.map((line, index) => {
+            const style = effectiveLineStyle(line, lineGroups)
+            return (
             <button
               key={line.id}
               type="button"
@@ -77,16 +80,17 @@ export const LineSearchDropdown = forwardRef<HTMLInputElement, {
               onClick={() => choose(line)}
             >
               <i
-                className={`line-selector-swatch line-selector-swatch-${line.style}`}
+                className={`line-selector-swatch line-selector-swatch-${style}`}
                 style={{
-                  background: line.style === 'solid' || line.style === 'dotted' ? line.color : 'transparent',
-                  borderColor: line.style === 'hollow' || line.style === 'dashed' ? line.color : 'transparent',
+                  background: style === 'solid' || style === 'dotted' ? line.color : 'transparent',
+                  borderColor: style === 'hollow' || style === 'dashed' ? line.color : 'transparent',
                 }}
               />
-              <span>{line.name || 'Unnamed line'}</span>
-              <em>({lineGroups.find((group) => group.id === line.groupId)?.name || 'Unassigned'})</em>
+              <span>{effectiveLineName(line, lineGroups, lines) || 'Unnamed line'}</span>
+              <em>({lineGroups.find((group) => group.id === line.lineGroupId)?.name || 'Unassigned'})</em>
             </button>
-          ))}
+            )
+          })}
           {!options.length && <div className="styled-dropdown-empty">No matching lines</div>}
         </div>
       )}

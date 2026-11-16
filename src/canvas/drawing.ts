@@ -1,6 +1,6 @@
 import { GRID_SIZE, WORKSPACE } from '../domain/constants'
-import { isConnectionDeleted, lineComponents, lineConnectionPairs, stationIcons } from '../domain/map'
-import type { FrameSelection, LineEndpointLabel, LineStyle, MetroLine, MetroMap, Point, SelectedConnection, Station, StationIcon, Viewport } from '../domain/types'
+import { effectiveLineName, effectiveLineStyle, isConnectionDeleted, lineComponents, lineConnectionPairs, stationIcons } from '../domain/map'
+import type { FrameSelection, Interchange, LineEndpointLabel, LineStyle, MetroLine, MetroMap, Point, SelectedConnection, Station, StationIcon, Viewport } from '../domain/types'
 import { pointKey, stationLabelOffset } from './geometry'
 import { MODALITY_ICON_URLS } from '../assets/modalityIcons'
 
@@ -35,6 +35,7 @@ export function drawMap(
   ctx.translate(viewport.x, viewport.y)
   ctx.scale(viewport.scale, viewport.scale)
   const stations = new Map(map.stations.map((station) => [station.id, station]))
+  const hiddenLabelIds = new Set((map.manualInterchanges ?? []).flatMap((group) => group.stations.filter((station) => !station.showName).map((station) => station.id)))
   drawManualInterchanges(ctx, map.manualInterchanges ?? [], stations)
   ctx.strokeStyle = '#e7edf3'
   ctx.lineWidth = 1
@@ -121,7 +122,7 @@ export function drawMap(
       ctx.stroke()
     }
     ctx.restore()
-    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return
+    if (station.kind === 'waypoint' || !station.name.trim() || hiddenLabelIds.has(station.id)) return
     const labelOffset = stationLabelOffset(station)
     const labelX = station.x + labelOffset.x
     const labelY = station.y + labelOffset.y
@@ -212,9 +213,10 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
   })
   grouped.forEach((group, stationId) => {
     const station = group[0].station
-    const groupOffset = map.terminusLabelOffsets?.[stationId] ?? { x: 0, y: -32 }
+    const lineIds = group.map(({ line }) => line.id)
+    const groupOffset = getTerminusLabelOffset(map, stationId, lineIds) ?? { x: 0, y: -32 }
     const dimensions = group.map(({ line }) => {
-      const label = line.name || 'Unnamed line'
+      const label = effectiveLineName(line, map.lineGroups, map.lines) || 'Unnamed line'
       const dimensions = measureLabelDimensions(label)
       return { label, ...dimensions, color: line.color }
     })
@@ -241,8 +243,8 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
       const dy = endpoint.station.y - endpoint.neighbor.y
       const length = Math.hypot(dx, dy) || 1
       const baseCenter = { x: endpoint.station.x + dx / length * 30, y: endpoint.station.y + dy / length * 30 }
-      const offset = map.lineLabelOffsets?.[endpoint.key] ?? { x: 0, y: 0 }
-      const label = endpoint.line.name || 'Unnamed line'
+      const offset = getTerminusLabelOffset(map, endpoint.station.id, [endpoint.line.id]) ?? { x: 0, y: 0 }
+      const label = effectiveLineName(endpoint.line, map.lineGroups, map.lines) || 'Unnamed line'
       const dimensions = measureLabelDimensions(label)
       labels.push({
         key: endpoint.key,
@@ -256,6 +258,19 @@ export function getLineEndpointLabels(map: MetroMap, stations: Map<string, Stati
       })
     })
   return labels
+}
+
+export function terminusLabelOffsetId(stationId: string, lineId: string) {
+  return `${lineId}:${stationId}`
+}
+
+export function getTerminusLabelOffset(map: MetroMap, stationId: string, lineIds: string[]) {
+  const wanted = new Set(lineIds)
+  return map.termini?.find((offset) => (
+    offset.stationId === stationId
+    && offset.lines.length === lineIds.length
+    && offset.lines.every(({ lineId }) => wanted.has(lineId))
+  ))
 }
 
 export function canonicalColor(color: string) {
@@ -273,9 +288,9 @@ export function lineOutlineStyle(style: LineStyle) {
   return style === 'hollow' ? 'double' : style
 }
 
-function drawManualInterchanges(ctx: CanvasRenderingContext2D, groups: string[][], stations: Map<string, Station>) {
+function drawManualInterchanges(ctx: CanvasRenderingContext2D, groups: Interchange[], stations: Map<string, Station>) {
   groups.forEach((group) => {
-    const points = group.map((id) => stations.get(id)).filter((station): station is Station => Boolean(station))
+    const points = group.stations.map(({ id }) => stations.get(id)).filter((station): station is Station => Boolean(station))
     if (points.length < 2) return
     const padding = 22
     const left = Math.min(...points.map((point) => point.x)) - padding
@@ -346,7 +361,8 @@ function drawSegments(
   groups.forEach((segments) => {
     const unique = new Map<string, typeof segments[number]>()
     segments.slice().sort((left, right) => left.line.id.localeCompare(right.line.id)).forEach((segment) => {
-      const key = `${canonicalColor(segment.line.color)}:${segment.line.style}`
+      const style = effectiveLineStyle(segment.line, map.lineGroups)
+      const key = `${canonicalColor(segment.line.color)}:${style}`
       const previous = unique.get(key)
       if (!previous || segment.line.id === selectedLineId) unique.set(key, segment)
     })
@@ -381,7 +397,8 @@ function drawSegments(
       ctx.globalAlpha = 1
       ctx.lineCap = 'butt'
       ctx.lineJoin = 'round'
-      if (segment.line.style === 'hollow') {
+      const style = effectiveLineStyle(segment.line, map.lineGroups)
+      if (style === 'hollow') {
         const railOffset = 2
         const railDx = -dy / length * railOffset
         const railDy = dx / length * railOffset
@@ -401,7 +418,7 @@ function drawSegments(
       } else {
         ctx.lineWidth = connectionSelected ? laneWidth + 3 : laneWidth
         ctx.strokeStyle = segment.line.color
-        ctx.setLineDash(segment.line.style === 'dashed' ? [24, 20] : segment.line.style === 'dotted' ? [2, 14] : [])
+        ctx.setLineDash(style === 'dashed' ? [24, 20] : style === 'dotted' ? [2, 14] : [])
         ctx.beginPath()
         ctx.moveTo(start.x, start.y)
         ctx.lineTo(end.x, end.y)

@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { KeyboardShortcuts } from './KeyboardShortcuts'
 
 describe('KeyboardShortcuts', () => {
+  it('renders nothing while closed', () => {
+    const { container } = render(<KeyboardShortcuts open={false} onClose={vi.fn()} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('renders grouped shortcuts and closes through the callback', () => {
     const onClose = vi.fn()
     render(<KeyboardShortcuts open onClose={onClose} />)
