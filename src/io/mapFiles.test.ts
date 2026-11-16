@@ -29,7 +29,7 @@ lines: []
     const map = await parseMapFile(file)
 
     expect(map.title).toBe('Imported map')
-    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
+    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '' })
   })
 
   it('parses a JSON map file', async () => {
@@ -40,7 +40,7 @@ lines: []
 
     const map = await parseMapFile(file)
 
-    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '', hideLabel: true })
+    expect(map.stations[0]).toMatchObject({ kind: 'waypoint', name: '' })
   })
 
   it('rejects unsupported map files', async () => {
@@ -56,6 +56,39 @@ lines: []
   it('rejects malformed YAML', async () => {
     const file = new File([': invalid: yaml'], 'map.yaml', { type: 'text/yaml' })
     await expect(parseMapFile(file)).rejects.toThrow()
+  })
+
+  it('rejects unnamed lines in simple naming groups', async () => {
+    const map = {
+      ...initialMap,
+      lineGroups: [{ ...initialMap.lineGroups![0], namingPattern: 'simple' as const }],
+      lines: [{ ...initialMap.lines[0], name: undefined }],
+    }
+    const file = new File([JSON.stringify(map)], 'map.json', { type: 'application/json' })
+
+    await expect(parseMapFile(file)).rejects.toThrow('uses simple naming')
+  })
+
+  it('normalizes legacy line overrides while importing', async () => {
+    const map = {
+      ...initialMap,
+      lineGroups: [{ ...initialMap.lineGroups![0], namingPattern: 'numbered' as const, namingPrefix: 'M' }],
+      lines: [{
+        ...initialMap.lines[0],
+        name: 'M1',
+        style: 'dashed' as const,
+        nameOverridden: false,
+        styleOverridden: false,
+      }],
+    }
+    const file = new File([JSON.stringify(map)], 'map.json', { type: 'application/json' })
+
+    const imported = await parseMapFile(file)
+
+    expect(imported.lines[0]).not.toHaveProperty('name')
+    expect(imported.lines[0]).not.toHaveProperty('style')
+    expect(imported.lines[0]).not.toHaveProperty('nameOverridden')
+    expect(imported.lines[0]).not.toHaveProperty('styleOverridden')
   })
 
   it('downloads YAML using a slugified map title', () => {
@@ -88,6 +121,28 @@ lines: []
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-json')
     expect((click.mock.instances[0] as HTMLAnchorElement).download).toBe('central-north.json')
     click.mockRestore()
+  })
+
+  it('exports optional generated line names without legacy override fields', async () => {
+    let exportedBlob: Blob | undefined
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn((blob: Blob) => {
+      exportedBlob = blob
+      return 'blob:test-json'
+    }) })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    downloadMapJson({
+      ...initialMap,
+      lineGroups: [{ ...initialMap.lineGroups![0], namingPattern: 'numbered' as const, namingPrefix: 'M' }],
+      lines: [{ ...initialMap.lines[0], name: undefined }],
+    })
+
+    const exported = JSON.parse(await exportedBlob!.text())
+    expect(exported.lines[0]).not.toHaveProperty('name')
+    expect(exported.lines[0]).not.toHaveProperty('nameOverridden')
+    expect(exported.lines[0]).not.toHaveProperty('styleOverridden')
+    vi.restoreAllMocks()
   })
 
   it('exports a bounded PNG and falls back to workspace dimensions for empty maps', () => {

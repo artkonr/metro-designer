@@ -1,5 +1,5 @@
 import { COLORS, GRID_SIZE, UNASSIGNED_GROUP_ID } from './constants'
-import type { LineGroup, LineNamingPattern, LineStyle, MetroLine, MetroMap, Station } from './types'
+import type { Interchange, LineGroup, LineNamingPattern, LineStyle, MetroLine, MetroMap, Station } from './types'
 
 export const initialMap: MetroMap = {
   version: 1,
@@ -11,10 +11,11 @@ export const initialMap: MetroMap = {
     { id: 's4', name: 'University', kind: 'station', x: 480, y: 560, labelOffset: { x: 0, y: -30 }, labelAngle: 0, icons: [] },
   ],
   lines: [
-    { id: 'l1', name: 'Blue Line', color: COLORS[1], style: 'solid', styleOverridden: true, nameOverridden: true, groupId: 'g-metro', stationIds: ['s1', 's2', 's3'] },
-    { id: 'l2', name: 'Teal Line', color: COLORS[4], style: 'dashed', styleOverridden: true, nameOverridden: true, groupId: 'g-metro', stationIds: ['s1', 's4', 's3'] },
+    { id: 'l1', name: 'Blue Line', color: COLORS[1], style: 'solid', lineGroupId: 'g-metro', order: 0, stationIds: ['s1', 's2', 's3'] },
+    { id: 'l2', name: 'Teal Line', color: COLORS[4], style: 'dashed', lineGroupId: 'g-metro', order: 1, stationIds: ['s1', 's4', 's3'] },
   ],
-  lineGroups: [{ id: 'g-metro', name: 'Metro', style: 'solid', namingPattern: 'simple', lineIds: ['l1', 'l2'] }],
+  lineGroups: [{ id: 'g-metro', name: 'Metro', style: 'solid', namingPattern: 'simple' }],
+  termini: [],
 }
 
 export const cloneMap = (map: MetroMap): MetroMap => JSON.parse(JSON.stringify(map)) as MetroMap
@@ -26,7 +27,8 @@ export const emptyMap = (): MetroMap => ({
   title: 'New metro map',
   stations: [],
   lines: [],
-  lineGroups: [{ id: nextId('g'), name: 'Metro', style: 'solid', namingPattern: 'simple', lineIds: [] }],
+  lineGroups: [{ id: nextId('g'), name: 'Metro', style: 'solid', namingPattern: 'simple' }],
+  termini: [],
 })
 
 export function isWaypoint(station: Station) {
@@ -41,25 +43,44 @@ export function normalizeMap(source: MetroMap): MetroMap {
   const stations = source.stations.map((station) => {
     const icons = stationIcons(station)
     return station.kind === 'waypoint'
-      ? { ...station, icons, name: '', hideLabel: true }
+      ? { ...station, icons, name: '' }
       : { ...station, icons }
   })
-  const lines = source.lines.map((line) => ({ ...line, styleOverridden: line.styleOverridden ?? true, nameOverridden: line.nameOverridden ?? true }))
+  const legacyGeneratedNames = new Set(source.lines
+    .filter((line) => (line as MetroLine & { nameOverridden?: boolean }).nameOverridden === false)
+    .map((line) => line.id))
+  const lines = source.lines.map((line) => {
+    const legacyStyleOverridden = (line as MetroLine & { styleOverridden?: boolean }).styleOverridden
+    const normalized = Object.fromEntries(Object.entries(line).filter(([key]) => key !== 'styleOverridden' && key !== 'nameOverridden')) as MetroLine
+    if (legacyStyleOverridden === false) delete normalized.style
+    return normalized
+  })
   const sourceGroups = source.lineGroups?.length
     ? source.lineGroups
-    : [{ id: 'g-metro', name: 'Metro', style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern, lineIds: lines.map((line) => line.id) }]
+    : [{ id: 'g-metro', name: 'Metro', style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern }]
   const groups = sourceGroups.map((group) => ({
     ...group,
     style: group.style ?? 'solid' as LineStyle,
     namingPattern: group.namingPattern ?? 'simple' as LineNamingPattern,
-    lineIds: group.lineIds.filter((lineId) => lines.some((line) => line.id === lineId)),
   }))
   const firstGroup = groups[0]
   lines.forEach((line) => {
-    const group = groups.find((candidate) => candidate.id === line.groupId || candidate.lineIds.includes(line.id)) ?? firstGroup
+    const group = groups.find((candidate) => candidate.id === line.lineGroupId) ?? firstGroup
     if (!group) return
-    if (!group.lineIds.includes(line.id)) group.lineIds.push(line.id)
-    line.groupId = group.id
+    line.lineGroupId = group.id
+    if (legacyGeneratedNames.has(line.id) && group.namingPattern !== 'simple') delete line.name
+  })
+  const groupOrders = new Map<string, number>()
+  lines.forEach((line) => {
+    const groupId = line.lineGroupId ?? firstGroup?.id ?? ''
+    const fallbackOrder = groupOrders.get(groupId) ?? 0
+    if (!Number.isFinite(line.order)) line.order = fallbackOrder
+    groupOrders.set(groupId, Math.max(fallbackOrder, line.order ?? fallbackOrder) + 1)
+  })
+  groups.forEach((group) => {
+    if (group.namingPattern === 'simple' && lines.some((line) => line.lineGroupId === group.id && !line.name?.trim())) {
+      throw new Error(`Line group "${group.name || group.id}" uses simple naming, so every line must have a name.`)
+    }
   })
   const unassigned = groups.find((group) => group.id === UNASSIGNED_GROUP_ID)
   const orderedGroups = unassigned ? [unassigned, ...groups.filter((group) => group.id !== UNASSIGNED_GROUP_ID)] : groups
@@ -67,9 +88,10 @@ export function normalizeMap(source: MetroMap): MetroMap {
     ...source,
     stations,
     lines,
+    termini: Array.isArray(source.termini) ? source.termini : [],
     lineGroups: orderedGroups.length
       ? orderedGroups
-      : [{ id: 'g-metro', name: 'Metro', style: 'solid', namingPattern: 'simple', lineIds: lines.map((line) => line.id) }],
+      : [{ id: 'g-metro', name: 'Metro', style: 'solid', namingPattern: 'simple' }],
   })
 }
 
@@ -90,6 +112,41 @@ export function generatedLineName(group: LineGroup, index: number) {
   return `Line ${index + 1}`
 }
 
+export function effectiveLineStyle(line: MetroLine, groups: LineGroup[] = []) {
+  return line.style ?? groups.find((group) => group.id === line.lineGroupId)?.style ?? 'solid'
+}
+
+export function effectiveLineName(line: MetroLine, groups: LineGroup[] = [], lines: MetroLine[] = []) {
+  if (line.name !== undefined) return line.name
+  const group = groups.find((candidate) => candidate.id === line.lineGroupId)
+  if (!group || group.namingPattern === 'simple') return ''
+  const index = lines
+    .filter((candidate) => candidate.lineGroupId === line.lineGroupId)
+    .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
+    .findIndex((candidate) => candidate.id === line.id)
+  return generatedLineName(group, Math.max(0, index))
+}
+
+export function resetLineName(map: MetroMap, lineId: string): MetroMap {
+  const line = map.lines.find((item) => item.id === lineId)
+  const group = line && map.lineGroups?.find((item) => item.id === line.lineGroupId)
+  if (!line || !group) return map
+  const groupIndex = map.lines
+    .filter((item) => item.lineGroupId === group.id)
+    .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
+    .findIndex((item) => item.id === line.id)
+  const name = group.namingPattern === 'simple' ? generatedLineName(group, Math.max(0, groupIndex)) : undefined
+  return {
+    ...map,
+    lines: map.lines.map((item) => {
+      if (item.id !== lineId) return item
+      if (name !== undefined) return { ...item, name }
+      const { name: _name, ...withoutName } = item
+      return withoutName
+    }),
+  }
+}
+
 export function applyGroupNaming(
   map: MetroMap,
   groupId: string,
@@ -98,78 +155,88 @@ export function applyGroupNaming(
   const groups = (map.lineGroups ?? []).map((group) => group.id === groupId ? { ...group, ...patch } : group)
   const group = groups.find((item) => item.id === groupId)
   if (!group) return { ...map, lineGroups: groups }
-  const indexes = new Map(group.lineIds.map((lineId, index) => [lineId, index]))
   return {
     ...map,
     lineGroups: groups,
-    lines: map.lines.map((line) => (
-      line.groupId === groupId && !line.nameOverridden
-        ? { ...line, name: generatedLineName(group, indexes.get(line.id) ?? 0) }
-        : line
-    )),
   }
 }
 
 export function lineNameOrder(line: MetroLine, group: LineGroup) {
   if (group.namingPattern === 'numbered') {
-    const number = Number.parseInt(line.name.slice((group.namingPrefix ?? '').length), 10)
+    const number = Number.parseInt((line.name ?? '').slice((group.namingPrefix ?? '').length), 10)
     return Number.isNaN(number) ? Number.MAX_SAFE_INTEGER : number
   }
 
   if (group.namingPattern === 'alphabet') {
-    const value = line.name.slice((group.namingPrefix ?? '').length).toUpperCase()
+    const value = (line.name ?? '').slice((group.namingPrefix ?? '').length).toUpperCase()
     return value ? [...value].reduce((total, character) => total * 26 + character.charCodeAt(0) - 64, 0) : Number.MAX_SAFE_INTEGER
   }
 
-  return line.name.toLocaleLowerCase()
+  return (line.name ?? '').toLocaleLowerCase()
 }
 
 export function deleteLineGroup(map: MetroMap, groupId: string) {
   const deleted = map.lineGroups?.find((group) => group.id === groupId)
   if (!deleted || deleted.ephemeral) return map
-  const danglingIds = new Set(deleted.lineIds)
   const remainingGroups = (map.lineGroups ?? []).filter((group) => group.id !== groupId)
-  const unassignedLines = map.lines.filter((line) => danglingIds.has(line.id) || line.groupId === groupId).map((line) => line.id)
+  const unassignedLines = map.lines.filter((line) => line.lineGroupId === groupId).map((line) => line.id)
   const existingUnassigned = remainingGroups.find((group) => group.id === UNASSIGNED_GROUP_ID)
   const unassigned = existingUnassigned
-    ? { ...existingUnassigned, ephemeral: true, lineIds: [...existingUnassigned.lineIds, ...unassignedLines.filter((lineId) => !existingUnassigned.lineIds.includes(lineId))] }
-    : { id: UNASSIGNED_GROUP_ID, name: 'Unassigned', style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern, lineIds: unassignedLines, ephemeral: true }
+    ? { ...existingUnassigned, ephemeral: true }
+    : { id: UNASSIGNED_GROUP_ID, name: 'Unassigned', style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern, ephemeral: true }
   const groups = [unassigned, ...remainingGroups.filter((group) => group.id !== UNASSIGNED_GROUP_ID)]
   return {
     ...map,
-    lines: map.lines.map((line) => unassignedLines.includes(line.id) ? { ...line, groupId: UNASSIGNED_GROUP_ID } : line),
+    lines: map.lines.map((line) => unassignedLines.includes(line.id) ? { ...line, lineGroupId: UNASSIGNED_GROUP_ID } : line),
     lineGroups: groups,
   }
 }
 
 export function removeEmptyUnassigned(map: MetroMap) {
-  return map.lineGroups?.some((group) => group.id === UNASSIGNED_GROUP_ID && group.lineIds.length === 0)
+  return map.lineGroups?.some((group) => group.id === UNASSIGNED_GROUP_ID && !map.lines.some((line) => line.lineGroupId === UNASSIGNED_GROUP_ID))
     ? { ...map, lineGroups: map.lineGroups.filter((group) => group.id !== UNASSIGNED_GROUP_ID) }
     : map
 }
 
 export function moveLineToGroup(map: MetroMap, lineId: string, groupId: string) {
   const targetGroup = (map.lineGroups ?? []).find((item) => item.id === groupId)
-  const targetIndex = targetGroup?.lineIds.length ?? 0
+  const targetIndex = targetGroup ? map.lines.filter((line) => line.lineGroupId === groupId).length : 0
   return removeEmptyUnassigned({
     ...map,
     lines: map.lines.map((item) => (
       item.id === lineId
         ? {
             ...item,
-            groupId,
-            name: item.nameOverridden || !targetGroup || targetGroup.namingPattern === 'simple'
-              ? item.name
-              : generatedLineName(targetGroup, targetIndex),
+            lineGroupId: groupId,
+            order: targetIndex,
+            name: item.name ?? (targetGroup?.namingPattern === 'simple' ? generatedLineName(targetGroup, targetIndex) : undefined),
           }
         : item
     )),
-    lineGroups: (map.lineGroups ?? []).map((item) => (
-      item.id === groupId
-        ? { ...item, lineIds: item.lineIds.includes(lineId) ? item.lineIds : [...item.lineIds, lineId] }
-        : { ...item, lineIds: item.lineIds.filter((candidateLineId) => candidateLineId !== lineId) }
-    )),
   })
+}
+
+export function reorderLine(map: MetroMap, groupId: string, lineId: string, targetLineId: string) {
+  const groupLines = map.lines
+    .filter((line) => line.lineGroupId === groupId)
+    .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
+  const sourceIndex = groupLines.findIndex((line) => line.id === lineId)
+  const targetIndex = groupLines.findIndex((line) => line.id === targetLineId)
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return map
+  const [moved] = groupLines.splice(sourceIndex, 1)
+  groupLines.splice(targetIndex, 0, moved)
+  const orders = new Map(groupLines.map((line, index) => [line.id, index]))
+  return {
+    ...map,
+    lines: map.lines.map((line) => {
+      if (!orders.has(line.id)) return line
+      const order = orders.get(line.id) ?? 0
+      return {
+        ...line,
+        order,
+      }
+    }),
+  }
 }
 
 export function connectionKey(startId: string, endId: string) {
@@ -261,8 +328,12 @@ export function fallbackStationName(map: MetroMap, station: Station) {
   return `Station ${count}`
 }
 
-export function mergeManualInterchange(groups: string[][], firstId: string, secondId: string) {
-  const merged = groups.filter((group) => group.includes(firstId) || group.includes(secondId)).flat()
-  const remaining = groups.filter((group) => !group.includes(firstId) && !group.includes(secondId))
-  return [...remaining, [...new Set([...merged, firstId, secondId])]]
+export function mergeManualInterchange(groups: Interchange[], firstId: string, secondId: string) {
+  const merged = groups.filter((group) => group.stations.some((station) => station.id === firstId || station.id === secondId))
+  const remaining = groups.filter((group) => !merged.includes(group))
+  const stations = merged.flatMap((group) => group.stations)
+  const existing = new Map(stations.map((station) => [station.id, station.showName]))
+  existing.set(firstId, existing.get(firstId) ?? true)
+  existing.set(secondId, existing.get(secondId) ?? true)
+  return [...remaining, { id: nextId('i'), stations: [...existing].map(([id, showName]) => ({ id, showName })) }]
 }

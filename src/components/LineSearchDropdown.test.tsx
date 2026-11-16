@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { LineSearchDropdown } from './LineSearchDropdown'
 
 const lines = [
-  { id: 'l2', name: 'Teal Line', color: '#0aa', style: 'dashed' as const, stationIds: [], groupId: 'g2' },
-  { id: 'l1', name: 'Blue Line', color: '#00f', style: 'solid' as const, stationIds: [], groupId: 'g1' },
+  { id: 'l2', name: 'Teal Line', color: '#0aa', style: 'dashed' as const, stationIds: [], lineGroupId: 'g2' },
+  { id: 'l1', name: 'Blue Line', color: '#00f', style: 'solid' as const, stationIds: [], lineGroupId: 'g1' },
 ]
 
 describe('LineSearchDropdown', () => {
   it('filters lines and selects the matching option', () => {
     const onSelect = vi.fn()
-    render(<LineSearchDropdown lines={lines} lineGroups={[{ id: 'g1', name: 'Metro', style: 'solid', namingPattern: 'simple', lineIds: ['l1'] }]} onSelect={onSelect} />)
+    render(<LineSearchDropdown lines={lines} lineGroups={[{ id: 'g1', name: 'Metro', style: 'solid', namingPattern: 'simple' }]} onSelect={onSelect} />)
     const input = screen.getByRole('combobox')
 
     fireEvent.focus(input)
@@ -34,6 +34,16 @@ describe('LineSearchDropdown', () => {
     expect(onSelect).toHaveBeenCalledWith('l2')
     fireEvent.focus(input)
     fireEvent.keyDown(input, { code: 'Escape' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('shows inherited styles and closes when clicking outside', () => {
+    const onSelect = vi.fn()
+    render(<LineSearchDropdown lines={[{ ...lines[0], style: undefined }]} lineGroups={[{ id: 'g2', name: 'Regional', style: 'hollow', namingPattern: 'simple' }]} onSelect={onSelect} />)
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    expect(screen.getByRole('option').querySelector('.line-selector-swatch-hollow')).toBeInTheDocument()
+    fireEvent.mouseDown(document.body)
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 })

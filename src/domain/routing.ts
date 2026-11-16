@@ -74,8 +74,8 @@ export function shortestRoute(map: MetroMap, from: string, to: string) {
       graph.get(endId)?.add(startId)
     })
   })
-  ;(map.manualInterchanges ?? []).forEach((group) => group.forEach((id) => {
-    group.forEach((otherId) => {
+  ;(map.manualInterchanges ?? []).forEach((group) => group.stations.forEach(({ id }) => {
+    group.stations.forEach(({ id: otherId }) => {
       if (id !== otherId && graph.has(id) && graph.has(otherId)) graph.get(id)?.add(otherId)
     })
   }))
@@ -136,7 +136,7 @@ export function analyzeRoutes(map: MetroMap, junctionIds: Set<string>): RouteAna
       addEdge(nodeKey(stationId, fromLineId), nodeKey(stationId, toLineId), 1, 'junction')
     }))
   })
-  ;(map.manualInterchanges ?? []).forEach((group) => group.forEach((fromStationId, index) => group.slice(index + 1).forEach((toStationId) => {
+  ;(map.manualInterchanges ?? []).forEach((group) => group.stations.forEach(({ id: fromStationId }, index) => group.stations.slice(index + 1).forEach(({ id: toStationId }) => {
     const fromLines = lineIdsByStation.get(fromStationId) ?? new Set<string>()
     const toLines = lineIdsByStation.get(toStationId) ?? new Set<string>()
     fromLines.forEach((fromLineId) => toLines.forEach((toLineId) => {

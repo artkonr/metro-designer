@@ -4,11 +4,13 @@ import { drawMap, getLineEndpointLabels, stationIconLayout } from '../canvas/dra
 import { stationLabelOffset } from '../canvas/geometry'
 import { WORKSPACE } from '../domain/constants'
 import { normalizeMap, stationIcons } from '../domain/map'
-import type { MetroMap, SelectedConnection, Station } from '../domain/types'
+import type { Interchange, MetroMap, SelectedConnection, Station } from '../domain/types'
+
+type ExportedMap = Omit<MetroMap, 'manualInterchanges'> & { interchanges: Interchange[] }
 
 export async function parseMapFile(file: File): Promise<MetroMap> {
   const text = await file.text()
-  const parsed = (file.name.toLowerCase().endsWith('.json') ? JSON.parse(text) : yaml.load(text)) as MetroMap
+  const parsed = (file.name.toLowerCase().endsWith('.json') ? JSON.parse(text) : yaml.load(text)) as MetroMap & { interchanges?: Interchange[] }
   if (
     !parsed
     || parsed.version !== 1
@@ -16,19 +18,24 @@ export async function parseMapFile(file: File): Promise<MetroMap> {
     || !parsed.stations.every((station) => station.kind === 'station' || station.kind === 'waypoint')
     || !parsed.stations.every((station) => Array.isArray(station.icons))
     || !Array.isArray(parsed.lines)
+    || (parsed.termini !== undefined && !isTerminusLabelOffsets(parsed.termini))
   ) {
     throw new Error('Unsupported map file')
   }
-  return normalizeMap(parsed)
+  const { interchanges, ...source } = parsed
+  return normalizeMap({
+    ...source,
+    manualInterchanges: source.manualInterchanges ?? interchanges,
+  })
 }
 
 export function downloadMapYaml(map: MetroMap) {
-  const blob = new Blob([yaml.dump(map, { noRefs: true })], { type: 'text/yaml' })
+  const blob = new Blob([yaml.dump(exportableMap(map), { noRefs: true })], { type: 'text/yaml' })
   downloadBlob(blob, `${slug(map.title)}.yaml`)
 }
 
 export function downloadMapJson(map: MetroMap) {
-  const blob = new Blob([JSON.stringify(map)], { type: 'application/json' })
+  const blob = new Blob([JSON.stringify(exportableMap(map))], { type: 'application/json' })
   downloadBlob(blob, `${slug(map.title)}.json`)
 }
 
@@ -63,7 +70,8 @@ export function exportMapPng({
 
   map.stations.forEach((station) => {
     includeRect(station.x - 12, station.y - 12, station.x + 12, station.y + 12)
-    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return
+    const hiddenByInterchange = (map.manualInterchanges ?? []).some((group) => group.stations.some((item) => item.id === station.id && !item.showName))
+    if (station.kind === 'waypoint' || !station.name.trim() || hiddenByInterchange) return
     const offset = stationLabelOffset(station)
     const labelX = station.x + offset.x
     const labelY = station.y + offset.y
@@ -81,7 +89,7 @@ export function exportMapPng({
     includeRect(left, labelY - height / 2, left + width, labelY + height / 2)
   })
   ;(map.manualInterchanges ?? []).forEach((group) => {
-    const groupStations = group.map((id) => stations.get(id)).filter((station): station is Station => Boolean(station))
+    const groupStations = group.stations.map(({ id }) => stations.get(id)).filter((station): station is Station => Boolean(station))
     if (!groupStations.length) return
     includeRect(
       Math.min(...groupStations.map((station) => station.x)) - 22,
@@ -126,6 +134,36 @@ export function exportMapPng({
 
 function slug(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'metro-map'
+}
+
+function exportableMap(map: MetroMap): ExportedMap {
+  const { manualInterchanges, ...source } = map
+  return {
+    ...source,
+    interchanges: manualInterchanges ?? [],
+    termini: map.termini ?? [],
+  }
+}
+
+function isTerminusLabelOffsets(value: unknown): boolean {
+  return Array.isArray(value) && value.every((offset) => {
+    if (!offset || typeof offset !== 'object') return false
+    const candidate = offset as Record<string, unknown>
+    const lines = candidate.lines
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.stationId !== 'string'
+      || typeof candidate.x !== 'number'
+      || !Number.isFinite(candidate.x)
+      || typeof candidate.y !== 'number'
+      || !Number.isFinite(candidate.y)
+      || !Array.isArray(lines)
+      || lines.length === 0
+      || !lines.every((line) => Boolean(line) && typeof line === 'object' && typeof (line as Record<string, unknown>).lineId === 'string')
+    ) return false
+    const firstLineId = (lines[0] as Record<string, string>).lineId
+    return candidate.id === `${firstLineId}:${candidate.stationId}`
+  })
 }
 
 function downloadBlob(blob: Blob, name: string) {

@@ -1,12 +1,12 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { canonicalColor, drawMap, getLineEndpointLabels, lineOutlineStyle, readableText } from './canvas/drawing'
+import { canonicalColor, drawMap, getLineEndpointLabels, getTerminusLabelOffset, lineOutlineStyle, readableText, terminusLabelOffsetId } from './canvas/drawing'
 import { distanceToSegment, labelOffsetForAngle, nearestLabelAngle, pointKey, snapPoint, stationLabelOffset, zoomViewport, moveStation } from './canvas/geometry'
 import { Inspector } from './components/Inspector'
 import { KeyboardShortcuts } from './components/KeyboardShortcuts'
 import { MapCanvas } from './components/MapCanvas'
 import { COLORS, UNASSIGNED_GROUP_ID, WORKSPACE } from './domain/constants'
-import { cloneMap, connectionKey, deleteLineGroup, emptyMap, generatedLineName, initialMap, insertStationByProximity, isConnectionDeleted, lineConnectionPairs, lineNameOrder, mergeManualInterchange, nextId, removeEmptyUnassigned } from './domain/map'
+import { cloneMap, connectionKey, deleteLineGroup, effectiveLineName, effectiveLineStyle, emptyMap, generatedLineName, initialMap, insertStationByProximity, isConnectionDeleted, lineConnectionPairs, mergeManualInterchange, nextId, removeEmptyUnassigned, reorderLine } from './domain/map'
 import { analyzeRoutes, getInterchangeIds, shortestRoute } from './domain/routing'
 import type { DragState, FrameSelection, LineNamingPattern, LineStyle, MetroLine, Point, RouteAnalysis, SelectedConnection, Station, StationDragState, StationIcon, Tool, Viewport } from './domain/types'
 import { downloadMapJson, downloadMapYaml, exportMapPng, parseMapFile } from './io/mapFiles'
@@ -23,6 +23,8 @@ export default function App() {
   const [selectedConnection, setSelectedConnection] = useState<SelectedConnection | null>(null)
   const [stationNavigationLineId, setStationNavigationLineId] = useState<string | null>('l1')
   const [activeLineId, setActiveLineId] = useState<string | null>(null)
+  const [draggedLineId, setDraggedLineId] = useState<string | null>(null)
+  const [dragOverLineId, setDragOverLineId] = useState<string | null>(null)
   const [placementLineId, setPlacementLineId] = useState<string | null>(null)
   const [interchangeAnchorId, setInterchangeAnchorId] = useState<string | null>(null)
   const [routeFrom, setRouteFrom] = useState('s1')
@@ -119,11 +121,9 @@ export default function App() {
   const selectedGroup = map.lineGroups?.find((group) => group.id === selectedGroupId)
   const selectedGroupLines = useMemo(() => {
     if (!selectedGroup) return []
-    return map.lines.filter((line) => line.groupId === selectedGroup.id).sort((left, right) => {
-      const leftOrder = lineNameOrder(left, selectedGroup)
-      const rightOrder = lineNameOrder(right, selectedGroup)
-      return typeof leftOrder === 'number' && typeof rightOrder === 'number' ? leftOrder - rightOrder : String(leftOrder).localeCompare(String(rightOrder))
-    })
+    return map.lines
+      .filter((line) => line.lineGroupId === selectedGroup.id)
+      .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
   }, [map.lines, selectedGroup])
   const stationsById = useMemo(() => new Map(map.stations.map((station) => [station.id, station])), [map.stations])
   const interchangeIds = useMemo(() => getInterchangeIds(map), [map])
@@ -247,7 +247,7 @@ export default function App() {
     groups.forEach((segments) => {
       const unique = new Map<string, typeof segments[number]>()
       segments.slice().sort((left, right) => left.line.id.localeCompare(right.line.id)).forEach((segment) => {
-        const key = `${canonicalColor(segment.line.color)}:${segment.line.style}`
+        const key = `${canonicalColor(segment.line.color)}:${effectiveLineStyle(segment.line, map.lineGroups)}`
         const previous = unique.get(key)
         if (!previous || segment.line.id === selectedLineId) unique.set(key, segment)
       })
@@ -275,7 +275,7 @@ export default function App() {
     return closest
   }
   const labelAt = (point: Point) => [...map.stations].reverse().find((station) => {
-    if (station.kind === 'waypoint' || !station.name.trim() || station.hideLabel) return false
+    if (station.kind === 'waypoint' || !station.name.trim() || (map.manualInterchanges ?? []).some((group) => group.stations.some((item) => item.id === station.id && !item.showName))) return false
     const offset = stationLabelOffset(station)
     const x = station.x + offset.x
     const y = station.y + offset.y
@@ -410,19 +410,21 @@ export default function App() {
       const labels = getLineEndpointLabels(map, new Map(map.stations.map((station) => [station.id, station])))
       const label = labels.find((item) => (drag.group ? item.groupKey : item.key) === drag.id)
       if (!label) return
-      const currentOffset = drag.group
-        ? (map.terminusLabelOffsets?.[drag.id] ?? { x: 0, y: -32 })
-        : (map.lineLabelOffsets?.[drag.id] ?? { x: 0, y: 0 })
+      const lineIds = drag.group
+        ? labels.filter((item) => item.groupKey === drag.id).map((item) => item.key.slice(0, item.key.lastIndexOf(':')))
+        : [drag.id.slice(0, drag.id.lastIndexOf(':'))]
+      const currentOffset = getTerminusLabelOffset(map, label.station.id, lineIds) ?? { x: 0, y: drag.group ? -32 : 0 }
       const offset = {
         x: (currentOffset?.x ?? 0) + point.x - drag.offset.x - label.center.x,
         y: (currentOffset?.y ?? 0) + point.y - drag.offset.y - label.center.y,
       }
+      const id = terminusLabelOffsetId(label.station.id, lineIds[0])
       updateMap((current) => ({
         ...current,
-        [drag.group ? 'terminusLabelOffsets' : 'lineLabelOffsets']: {
-          ...(drag.group ? current.terminusLabelOffsets : current.lineLabelOffsets),
-          [drag.id]: offset,
-        },
+        termini: [
+          ...(current.termini ?? []).filter((item) => item.id !== id),
+          { id, stationId: label.station.id, ...offset, lines: lineIds.map((lineId) => ({ lineId })) },
+        ],
       }), false)
       return
     }
@@ -466,9 +468,9 @@ export default function App() {
   const addLine = () => {
     const groupId = selectedGroupId ?? map.lineGroups?.[0]?.id ?? 'g-metro'
     const group = map.lineGroups?.find((item) => item.id === groupId)
-    const lineIndex = group?.lineIds.length ?? 0
-    const line = { id: nextId('l'), name: group ? generatedLineName(group, lineIndex) : `Line ${map.lines.length + 1}`, color: COLORS[map.lines.length % COLORS.length], style: group?.style ?? 'solid', styleOverridden: false, nameOverridden: false, groupId, stationIds: [] }
-    updateMap((current) => ({ ...current, lines: [...current.lines, line], lineGroups: (current.lineGroups ?? []).map((item) => item.id === groupId ? { ...item, lineIds: [...item.lineIds, line.id] } : item) }))
+    const lineIndex = map.lines.filter((line) => line.lineGroupId === groupId).length
+    const line = { id: nextId('l'), name: group?.namingPattern === 'simple' ? generatedLineName(group, lineIndex) : undefined, color: COLORS[map.lines.length % COLORS.length], lineGroupId: groupId, order: lineIndex, stationIds: [] }
+    updateMap((current) => ({ ...current, lines: [...current.lines, line] }))
     focusNewLineIdRef.current = line.id
     setActiveLineId(line.id)
     setSelectedLineId(line.id)
@@ -496,7 +498,7 @@ export default function App() {
   }
 
   const addLineGroup = () => {
-    const group = { id: nextId('g'), name: `Group ${(map.lineGroups?.length ?? 0) + 1}`, style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern, lineIds: [] }
+    const group = { id: nextId('g'), name: `Group ${(map.lineGroups?.length ?? 0) + 1}`, style: 'solid' as LineStyle, namingPattern: 'simple' as LineNamingPattern }
     updateMap((current) => ({ ...current, lineGroups: [...(current.lineGroups ?? []), group] }))
     setSelectedGroupId(group.id)
     focusNewGroupIdRef.current = group.id
@@ -525,7 +527,7 @@ export default function App() {
   const deleteSelected = () => {
     if (selectedStationId) {
       const stationIds = selectedStationIds.length ? selectedStationIds : [selectedStationId]
-      updateMap((current) => ({ ...current, stations: current.stations.filter((station) => !stationIds.includes(station.id)), lines: current.lines.map((line) => ({ ...line, stationIds: line.stationIds.filter((id) => !stationIds.includes(id)) })), manualInterchanges: (current.manualInterchanges ?? []).map((group) => group.filter((id) => !stationIds.includes(id))).filter((group) => group.length > 1) }))
+      updateMap((current) => ({ ...current, stations: current.stations.filter((station) => !stationIds.includes(station.id)), lines: current.lines.map((line) => ({ ...line, stationIds: line.stationIds.filter((id) => !stationIds.includes(id)) })), manualInterchanges: (current.manualInterchanges ?? []).map((group) => ({ ...group, stations: group.stations.filter(({ id }) => !stationIds.includes(id)) })).filter((group) => group.stations.length > 1) }))
       setSelectedStationId(null)
       setSelectedStationIds([])
       setSelectedConnection(null)
@@ -541,7 +543,7 @@ export default function App() {
       setShowDeleteLineConfirm(false)
       return
     }
-    updateMap((current) => removeEmptyUnassigned({ ...current, lines: current.lines.filter((line) => line.id !== selectedLineId), lineGroups: (current.lineGroups ?? []).map((group) => ({ ...group, lineIds: group.lineIds.filter((lineId) => lineId !== selectedLineId) })) }))
+    updateMap((current) => removeEmptyUnassigned({ ...current, lines: current.lines.filter((line) => line.id !== selectedLineId) }))
     setShowDeleteLineConfirm(false)
     setSelectedLineId(null)
     setSelectedConnection(null)
@@ -823,8 +825,8 @@ export default function App() {
             onWheel={handleWheel}
           />
           <div className="line-panels">
-            <section className="panel group-toolbar"><div className="panel-heading"><h2>Groups</h2><button className="add-line-button" onClick={addLineGroup}>+ Add</button></div><div className="group-list">{(map.lineGroups ?? []).map((group) => <button key={group.id} className={selectedGroupId === group.id ? 'group-row active' : 'group-row'} style={{ borderLeft: `4px ${lineOutlineStyle(group.style)} #aeb8c2` }} onClick={() => { setSelectedGroupId(group.id); setSelectedLineId(null); setActiveLineId(null); setSelectedStationId(null); setSelectedStationIds([]); setSelectedConnection(null) }}><span>{group.name || 'Unnamed group'}</span><small>{group.lineIds.length}</small></button>)}</div></section>
-            <section className="panel line-toolbar"><div className="panel-heading"><h2>Lines</h2><button className="add-line-button" onClick={addLine}>+ Add</button></div><div className="line-list">{selectedGroupLines.map((line) => <button key={line.id} className={activeLineId === line.id ? 'line-row active' : 'line-row'} style={activeLineId === line.id ? { border: `2px ${lineOutlineStyle(line.style)} ${line.color}` } : undefined} onClick={() => { setActiveLineId(line.id); setSelectedLineId(line.id); setSelectedStationId(null); setSelectedStationIds([]); setSelectedConnection(null) }}><i className="line-color-block" style={{ background: line.color }} /><span>{line.name || 'Unnamed line'}</span><small>{line.stationIds.length}</small></button>)}</div>{!selectedGroupLines.length && <div className="hint">Select a group to view its lines.</div>}<div className="hint">Select a station or waypoint to add it to lines.</div></section>
+            <section className="panel group-toolbar"><div className="panel-heading"><h2>Groups</h2><button className="add-line-button" onClick={addLineGroup}>+ Add</button></div><div className="group-list">{(map.lineGroups ?? []).map((group) => <button key={group.id} className={selectedGroupId === group.id ? 'group-row active' : 'group-row'} style={{ borderLeft: `4px ${lineOutlineStyle(group.style)} #aeb8c2` }} onClick={() => { setSelectedGroupId(group.id); setSelectedLineId(null); setActiveLineId(null); setSelectedStationId(null); setSelectedStationIds([]); setSelectedConnection(null) }}><span>{group.name || 'Unnamed group'}</span><small>{map.lines.filter((line) => line.lineGroupId === group.id).length}</small></button>)}</div></section>
+            <section className="panel line-toolbar"><div className="panel-heading"><h2>Lines</h2><button className="add-line-button" onClick={addLine}>+ Add</button></div><div className="line-list">{selectedGroupLines.map((line) => <button key={line.id} draggable className={`${activeLineId === line.id ? 'line-row active' : 'line-row'}${draggedLineId === line.id ? ' dragged' : ''}${dragOverLineId === line.id && draggedLineId !== line.id ? ' drop-target' : ''}`} title={dragOverLineId === line.id && draggedLineId !== line.id ? 'Drop here to move the line before this line' : undefined} style={activeLineId === line.id ? { border: `2px ${lineOutlineStyle(effectiveLineStyle(line, map.lineGroups))} ${line.color}` } : undefined} onDragStart={() => { setDraggedLineId(line.id); setDragOverLineId(null) }} onDragEnter={() => { if (draggedLineId && draggedLineId !== line.id) setDragOverLineId(line.id) }} onDragOver={(event) => { event.preventDefault(); if (draggedLineId && draggedLineId !== line.id) setDragOverLineId(line.id) }} onDrop={() => { if (draggedLineId && selectedGroup) updateMap((map) => reorderLine(map, selectedGroup.id, draggedLineId, line.id)); setDraggedLineId(null); setDragOverLineId(null) }} onDragEnd={() => { setDraggedLineId(null); setDragOverLineId(null) }} onClick={() => { setActiveLineId(line.id); setSelectedLineId(line.id); setSelectedStationId(null); setSelectedStationIds([]); setSelectedConnection(null) }}><i className="line-color-block" style={{ background: line.color }} /><span>{effectiveLineName(line, map.lineGroups, map.lines) || 'Unnamed line'}</span><small>{line.stationIds.length}</small></button>)}</div>{!selectedGroupLines.length && <div className="hint">Select a group to view its lines.</div>}<div className="hint">Drag lines to reorder them. The highlighted row is the drop target.</div><div className="hint">Select a station or waypoint to add it to lines.</div></section>
           </div>
         </section>
         <aside className="sidebar right-panel">
